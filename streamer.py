@@ -9,8 +9,9 @@ from socketserver import ThreadingMixIn
 import io
 import time
 import threading
-from snap import Vision
+from vision_processing import Vision
 
+# evil global thread shared state
 vision = None
 
 
@@ -34,7 +35,7 @@ class CamHandler(BaseHTTPRequestHandler):
                     self.send_header('Content-length', str(tmpFile.tell()))
                     self.end_headers()
                     jpg.save(self.wfile, 'JPEG')
-                    time.sleep(0.05)
+                    time.sleep(0.15)
                 except KeyboardInterrupt:
                     break
             return
