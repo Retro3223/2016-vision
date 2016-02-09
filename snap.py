@@ -15,20 +15,20 @@ def main():
     cv2.createTrackbar("mode", "View", 0, 4, lambda *args: None)
     cv2.createTrackbar("area_threshold", "View", 10, 500,
                        lambda *args: None)
-    vision = Vision()
-    while True:
-        vision.mode = cv2.getTrackbarPos("mode", "View")
-        vision.area_threshold = cv2.getTrackbarPos("area_threshold", "View")
-        vision.get_depths()
-        vision.idepth_stats()
-        vision.set_display()
-        cv2.imshow("View", vision.display)
-        x = cv2.waitKey(250)
-        if x % 128 == 27:
-            break
-        elif 49 <= x <= 53:
-            cv2.setTrackbarPos("mode", "View", x - 49)
-    cv2.destroyWindow("View")
+    with Vision() as vision:
+        while True:
+            vision.mode = cv2.getTrackbarPos("mode", "View")
+            vision.area_threshold = cv2.getTrackbarPos("area_threshold", "View")
+            vision.get_depths()
+            vision.idepth_stats()
+            vision.set_display()
+            cv2.imshow("View", vision.display)
+            x = cv2.waitKey(250)
+            if x % 128 == 27:
+                break
+            elif 49 <= x <= 53:
+                cv2.setTrackbarPos("mode", "View", x - 49)
+        cv2.destroyWindow("View")
 
 
 class Vision:
@@ -48,6 +48,13 @@ class Vision:
         self.perimeter_threshold = 10
         self.n_shiniest = 1
         self.contours = []
+
+    def __enter__(self):
+        structure3223.init()
+        return self
+
+    def __exit__(self, *args):
+        structure3223.destroy()
 
     def set_display(self):
         if self.mode == 0:
@@ -201,6 +208,4 @@ def to_uint16_mask(img):
 
 
 if __name__ == '__main__':
-    structure3223.init()
     main()
-    structure3223.destroy()
