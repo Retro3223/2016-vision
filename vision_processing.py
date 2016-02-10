@@ -23,7 +23,7 @@ def main():
             vision.idepth_stats()
             vision.set_display()
             cv2.imshow("View", vision.display)
-            x = cv2.waitKey(250)
+            x = cv2.waitKey(50)
             if x % 128 == 27:
                 break
             elif 49 <= x <= 53:
@@ -34,13 +34,16 @@ def main():
 class Vision:
     def __init__(self):
         self.setup_nt()
-        self.display = None
-        self.mask8 = None
-        self.mask16 = None
-        self.depth = None
-        self.interesting_depths = None
-        self.ir = None
-        self.contour_img = None
+        self.display = numpy.zeros(shape=(240, 320, 3), dtype='uint8')
+        self.tmp8_1 = numpy.zeros(shape=(240, 320), dtype='uint8')
+        self.tmp8_2 = numpy.zeros(shape=(240, 320), dtype='uint8')
+        self.tmp16_1 = numpy.zeros(shape=(240, 320), dtype='uint16')
+        self.mask8 = numpy.zeros(shape=(240, 320), dtype='uint8')
+        self.mask16 = numpy.zeros(shape=(240, 320), dtype='uint16')
+        self.depth = numpy.zeros(shape=(240, 320), dtype='uint16')
+        self.interesting_depths = numpy.zeros(shape=(240, 320), dtype='uint16')
+        self.ir = numpy.zeros(shape=(240, 320), dtype='uint16')
+        self.contour_img = numpy.zeros(shape=(240, 320, 3), dtype='uint8')
         self.mode = 0
         self.area_threshold = 10
         self.rat_min = 0.1
@@ -58,20 +61,18 @@ class Vision:
 
     def set_display(self):
         if self.mode == 0:
-            display = to_uint8(self.depth)
-            display = cv2.cvtColor(display, cv2.COLOR_GRAY2BGR)
+            into_uint8(self.depth, dst=self.tmp8_1)
+            cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.display)
         elif self.mode == 1:
-            display = cv2.cvtColor(to_uint8(self.ir), cv2.COLOR_GRAY2BGR)
+            into_uint8(self.ir, dst=self.tmp8_1)
+            cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.display)
         elif self.mode == 2:
-            display = cv2.cvtColor(self.mask8, cv2.COLOR_GRAY2BGR)
+            cv2.cvtColor(self.mask8, cv2.COLOR_GRAY2BGR, dst=self.display)
         elif self.mode == 3:
-            display = to_uint8(self.interesting_depths)
-            display = cv2.cvtColor(display, cv2.COLOR_GRAY2BGR)
-        elif self.mode == 4:
-            display = self.contour_img
+            into_uint8(self.interesting_depths, dst=self.tmp8_1)
+            cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.display)
         else:
-            display = self.contour_img
-        self.display = display
+            numpy.copyto(dst=self.display, src=self.contour_img)
 
     def setup_nt(self):
         NetworkTable.setIPAddress('127.0.01')
@@ -80,25 +81,24 @@ class Vision:
         self.sd = NetworkTable.getTable("SmartDashboard")
 
     def get_depths(self):
-        self.depth, self.ir = structure3223.read_frame()
+        structure3223.read_frame(depth=self.depth, ir=self.ir)
         self.mask_shiny()
         self.filter_shiniest()
-        self.interesting_depths = cv2.bitwise_and(self.depth, self.mask16)
+        cv2.bitwise_and(self.depth, self.mask16, dst=self.interesting_depths)
 
     def mask_shiny(self):
-        img2 = pygrip.desaturate(self.ir)
-        img2_1 = to_uint8(img2)
-        img3 = pygrip.blur(img2_1, pygrip.MEDIAN_BLUR, 1)
-        _, img4 = cv2.threshold(img3, 80, 0xff, cv2.THRESH_BINARY)
+        pygrip.desaturate(self.ir, dst=self.tmp16_1)
+        into_uint8(self.tmp16_1, dst=self.tmp8_1)
+        pygrip.blur(self.tmp8_1, pygrip.MEDIAN_BLUR, 1, dst=self.tmp8_2)
+        cv2.threshold(self.tmp8_2, 80, 0xff, cv2.THRESH_BINARY, dst=self.mask8)
         # grr threshold operates on matrices of unsigned bytes
-        self.mask8 = img4
-        self.mask16 = to_uint16_mask(img4)
+        into_uint16_mask(self.mask8, dst=self.mask16)
 
     def filter_shiniest(self):
         things = cv2.findContours(
             self.mask8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         contours = things[1]
-        self.contour_img = cv2.cvtColor(self.mask8, cv2.COLOR_GRAY2BGR)
+        cv2.cvtColor(self.mask8, cv2.COLOR_GRAY2BGR, dst=self.contour_img)
         # show all contours in blue
         cv2.drawContours(self.contour_img, contours, -1, (255, 0, 0))
         contours = [c for c in contours if self.filter(c)]
@@ -147,9 +147,11 @@ class Vision:
             center_y = (min_y + max_y) // 2
             # crosshairs
             cv2.line(self.contour_img,
-                     (center_x, center_y-5), (center_x, center_y+5), (0, 0, 255))
+                     (center_x, center_y-5),
+                     (center_x, center_y+5), (0, 0, 255))
             cv2.line(self.contour_img,
-                     (center_x-5, center_y), (center_x+5, center_y), (0, 0, 255))
+                     (center_x-5, center_y),
+                     (center_x+5, center_y), (0, 0, 255))
             # corners
             cv2.line(self.contour_img,
                      (min_x, min_y), (min_x+5, min_y), (0, 0, 255))
@@ -184,27 +186,28 @@ class Vision:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255))
 
 
-def to_uint8(img):
+def into_uint8(img, dst):
     # convert a matrix of unsigned short values to a matrix of unsigned byte
     # values.
     # mostly just useful for turning sensor output into viewable images
     max = numpy.amax(img)
-    result = img
     if max > 255:
-        result = img * 255. / max
-    result = result.astype('uint8')
-    return result
+        dst[:] = img * 255. / max
+    else:
+        numpy.copyto(dst, img)
+    return dst
 
 
-def to_uint16_mask(img):
+def into_uint16_mask(img, dst):
     # input should be uint8
     assert img.dtype == 'uint8'
+    assert dst.dtype == 'uint16'
 
     # we want to be able to bitwise_and the result of this function against
     # a matrix of unsigned shorts. without losing data.
-    img5 = img.astype('uint16')
-    img5[numpy.nonzero(img5)] = 0xffff
-    return img5
+    dst[:] = 0
+    dst[numpy.nonzero(img)] = 0xffff
+    return dst
 
 
 if __name__ == '__main__':

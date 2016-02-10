@@ -69,7 +69,7 @@ class ReaderThread(threading.Thread):
                 vision.get_depths()
                 vision.idepth_stats()
                 vision.set_display()
-                time.sleep(0.05)
+                time.sleep(0.15)
                 if self.stop:
                     break
 
