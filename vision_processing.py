@@ -32,18 +32,20 @@ def main():
 
 
 class Vision:
-    def __init__(self):
+    def __init__(self, shape=(240, 320)):
         self.setup_nt()
-        self.display = numpy.zeros(shape=(240, 320, 3), dtype='uint8')
-        self.tmp8_1 = numpy.zeros(shape=(240, 320), dtype='uint8')
-        self.tmp8_2 = numpy.zeros(shape=(240, 320), dtype='uint8')
-        self.tmp16_1 = numpy.zeros(shape=(240, 320), dtype='uint16')
-        self.mask8 = numpy.zeros(shape=(240, 320), dtype='uint8')
-        self.mask16 = numpy.zeros(shape=(240, 320), dtype='uint16')
-        self.depth = numpy.zeros(shape=(240, 320), dtype='uint16')
-        self.interesting_depths = numpy.zeros(shape=(240, 320), dtype='uint16')
-        self.ir = numpy.zeros(shape=(240, 320), dtype='uint16')
-        self.contour_img = numpy.zeros(shape=(240, 320, 3), dtype='uint8')
+        shape3 = (shape[0], shape[1], 3)
+        self.display = numpy.zeros(shape=shape3, dtype='uint8')
+        self.tmp8_1 = numpy.zeros(shape=shape, dtype='uint8')
+        self.tmp8_2 = numpy.zeros(shape=shape, dtype='uint8')
+        self.tmp16_1 = numpy.zeros(shape=shape, dtype='uint16')
+        self.mask8 = numpy.zeros(shape=shape, dtype='uint8')
+        self.mask16 = numpy.zeros(shape=shape, dtype='uint16')
+        self.depth = numpy.zeros(shape=shape, dtype='uint16')
+        self.interesting_depths = numpy.zeros(shape=shape, dtype='uint16')
+        self.ir = numpy.zeros(shape=shape, dtype='uint16')
+        self.tmp83_1 = numpy.zeros(shape=shape3, dtype='uint8')
+        self.contour_img = numpy.zeros(shape=shape3, dtype='uint8')
         self.mode = 0
         self.area_threshold = 10
         self.rat_min = 0.1
@@ -62,15 +64,19 @@ class Vision:
     def set_display(self):
         if self.mode == 0:
             into_uint8(self.depth, dst=self.tmp8_1)
-            cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.display)
+            cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.tmp83_1)
+            cv2.flip(self.tmp83_1, 1, dst=self.display)
         elif self.mode == 1:
             into_uint8(self.ir, dst=self.tmp8_1)
-            cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.display)
+            cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.tmp83_1)
+            cv2.flip(self.tmp83_1, 1, dst=self.display)
         elif self.mode == 2:
-            cv2.cvtColor(self.mask8, cv2.COLOR_GRAY2BGR, dst=self.display)
+            cv2.cvtColor(self.mask8, cv2.COLOR_GRAY2BGR, dst=self.tmp83_1)
+            cv2.flip(self.tmp83_1, 1, dst=self.display)
         elif self.mode == 3:
             into_uint8(self.interesting_depths, dst=self.tmp8_1)
-            cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.display)
+            cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.tmp83_1)
+            cv2.flip(self.tmp83_1, 1, dst=self.display)
         else:
             numpy.copyto(dst=self.display, src=self.contour_img)
 
@@ -176,6 +182,8 @@ class Vision:
             max_x = -1
             center_x = -1
             center_y = -1
+        cv2.flip(self.contour_img, 1, dst=self.tmp83_1)
+        numpy.copyto(dst=self.contour_img, src=self.tmp83_1)
         cv2.putText(self.contour_img, ("d= %.2f in" % avg_in), (10, 40),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255))
         cv2.putText(self.contour_img, ("minx= %s" % min_x), (10, 60),
