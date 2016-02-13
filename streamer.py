@@ -61,9 +61,6 @@ class ReaderThread(threading.Thread):
         global vision
         self.stop = False
         shape = (240, 320)
-        import platform
-        if 'armv6' in platform.platform():
-            shape = (120, 160)
         vision = self.vision = Vision(shape)
         self.vision.mode = 100
 

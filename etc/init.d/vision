@@ -1,0 +1,25 @@
+#!/bin/bash
+
+startthings() {
+    start-stop-daemon --pidfile=/var/run/vision.pid -b -m --start \
+        --exec /usr/bin/python3 -- /opt/2016-vision/file_streamer.py 
+}
+
+stopthings() {
+    start-stop-daemon --pidfile=/var/run/vision.pid --stop  && \
+        rm -f $PIDFILE
+}
+
+case "$1" in
+    start)
+        startthings
+        ;;
+    stop)
+        stopthings
+        ;;
+    force-reload|restart|reload)
+        stopthings
+        startthings
+        ;;
+esac
+
