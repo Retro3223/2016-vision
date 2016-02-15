@@ -35,15 +35,15 @@ class Vision:
     def __init__(self, shape=(240, 320)):
         self.setup_nt()
         shape3 = (shape[0], shape[1], 3)
+        self.depth = numpy.zeros(shape=shape, dtype='uint16')
+        self.ir = numpy.zeros(shape=shape, dtype='uint16')
+        self.tmp16_1 = numpy.zeros(shape=shape, dtype='uint16')
         self.display = numpy.zeros(shape=shape3, dtype='uint8')
         self.tmp8_1 = numpy.zeros(shape=shape, dtype='uint8')
         self.tmp8_2 = numpy.zeros(shape=shape, dtype='uint8')
-        self.tmp16_1 = numpy.zeros(shape=shape, dtype='uint16')
         self.mask8 = numpy.zeros(shape=shape, dtype='uint8')
         self.mask16 = numpy.zeros(shape=shape, dtype='uint16')
-        self.depth = numpy.zeros(shape=shape, dtype='uint16')
         self.interesting_depths = numpy.zeros(shape=shape, dtype='uint16')
-        self.ir = numpy.zeros(shape=shape, dtype='uint16')
         self.tmp83_1 = numpy.zeros(shape=shape3, dtype='uint8')
         self.contour_img = numpy.zeros(shape=shape3, dtype='uint8')
         self.mode = 0
@@ -64,19 +64,15 @@ class Vision:
     def set_display(self):
         if self.mode == 0:
             into_uint8(self.depth, dst=self.tmp8_1)
-            cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.tmp83_1)
-            cv2.flip(self.tmp83_1, 1, dst=self.display)
+            cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.display)
         elif self.mode == 1:
             into_uint8(self.ir, dst=self.tmp8_1)
-            cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.tmp83_1)
-            cv2.flip(self.tmp83_1, 1, dst=self.display)
+            cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.display)
         elif self.mode == 2:
-            cv2.cvtColor(self.mask8, cv2.COLOR_GRAY2BGR, dst=self.tmp83_1)
-            cv2.flip(self.tmp83_1, 1, dst=self.display)
+            cv2.cvtColor(self.mask8, cv2.COLOR_GRAY2BGR, dst=self.display)
         elif self.mode == 3:
             into_uint8(self.interesting_depths, dst=self.tmp8_1)
-            cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.tmp83_1)
-            cv2.flip(self.tmp83_1, 1, dst=self.display)
+            cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.display)
         else:
             numpy.copyto(dst=self.display, src=self.contour_img)
 
@@ -88,9 +84,14 @@ class Vision:
 
     def get_depths(self):
         structure3223.read_frame(depth=self.depth, ir=self.ir)
+        self.flip_inputs()
         self.mask_shiny()
         self.filter_shiniest()
         cv2.bitwise_and(self.depth, self.mask16, dst=self.interesting_depths)
+
+    def flip_inputs(self):
+        cv2.flip(self.depth, 1, dst=self.depth)
+        cv2.flip(self.ir, 1, dst=self.ir)
 
     def mask_shiny(self):
         pygrip.desaturate(self.ir, dst=self.tmp16_1)
@@ -104,7 +105,8 @@ class Vision:
         things = cv2.findContours(
             self.mask8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         contours = things[1]
-        cv2.cvtColor(self.mask8, cv2.COLOR_GRAY2BGR, dst=self.contour_img)
+        into_uint8(self.depth, dst=self.tmp8_1)
+        cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.contour_img)
         # show all contours in blue
         cv2.drawContours(self.contour_img, contours, -1, (255, 0, 0))
         contours = [c for c in contours if self.filter(c)]
@@ -152,29 +154,21 @@ class Vision:
             center_x = (min_x + max_x) // 2
             center_y = (min_y + max_y) // 2
             # crosshairs
-            cv2.line(self.contour_img,
+            self.crosshair(
                      (center_x, center_y-5),
-                     (center_x, center_y+5), (0, 0, 255))
-            cv2.line(self.contour_img,
+                     (center_x, center_y+5))
+            self.crosshair(
                      (center_x-5, center_y),
-                     (center_x+5, center_y), (0, 0, 255))
+                     (center_x+5, center_y))
             # corners
-            cv2.line(self.contour_img,
-                     (min_x, min_y), (min_x+5, min_y), (0, 0, 255))
-            cv2.line(self.contour_img,
-                     (min_x, min_y), (min_x, min_y+5), (0, 0, 255))
-            cv2.line(self.contour_img,
-                     (min_x, max_y), (min_x+5, max_y), (0, 0, 255))
-            cv2.line(self.contour_img,
-                     (min_x, max_y), (min_x, max_y-5), (0, 0, 255))
-            cv2.line(self.contour_img,
-                     (max_x, max_y), (max_x-5, max_y), (0, 0, 255))
-            cv2.line(self.contour_img,
-                     (max_x, max_y), (max_x, max_y-5), (0, 0, 255))
-            cv2.line(self.contour_img,
-                     (max_x, min_y), (max_x-5, min_y), (0, 0, 255))
-            cv2.line(self.contour_img,
-                     (max_x, min_y), (max_x, min_y+5), (0, 0, 255))
+            self.crosshair((min_x, min_y), (min_x+5, min_y))
+            self.crosshair((min_x, min_y), (min_x, min_y+5))
+            self.crosshair((min_x, max_y), (min_x+5, max_y))
+            self.crosshair((min_x, max_y), (min_x, max_y-5))
+            self.crosshair((max_x, max_y), (max_x-5, max_y))
+            self.crosshair((max_x, max_y), (max_x, max_y-5))
+            self.crosshair((max_x, min_y), (max_x-5, min_y))
+            self.crosshair((max_x, min_y), (max_x, min_y+5))
         else:
             min_y = -1
             max_y = -1
@@ -182,8 +176,6 @@ class Vision:
             max_x = -1
             center_x = -1
             center_y = -1
-        cv2.flip(self.contour_img, 1, dst=self.tmp83_1)
-        numpy.copyto(dst=self.contour_img, src=self.tmp83_1)
         cv2.putText(self.contour_img, ("d= %.2f in" % avg_in), (10, 40),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255))
         cv2.putText(self.contour_img, ("minx= %s" % min_x), (10, 60),
@@ -192,6 +184,13 @@ class Vision:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255))
         cv2.putText(self.contour_img, ("cx= %s" % center_x), (10, 100),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255))
+
+    def crosshair(self, pt1, pt2, img=None):
+        if img is None:
+            img = self.contour_img
+        corner_color = (0, 0, 255)
+        corner_thickness = 2
+        cv2.line(img, pt1, pt2, corner_color, corner_thickness)
 
 
 def into_uint8(img, dst):
