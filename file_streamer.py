@@ -39,7 +39,7 @@ class DataLogger:
         self.sd.addTableListener(lambda t, k, v, n: self.value_changed(t,k,v,n))
 
     def value_changed(self, table, key, value, is_new):
-        if key == "auto_on" and not self.match_running:
+        if key == "autonomousBegin" and not self.match_running:
             self.match_running = True
             self.save_dir = os.path.join(args.log_dir, 
                 datetime.datetime.now().isoformat())
