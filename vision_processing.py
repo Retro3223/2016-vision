@@ -2,7 +2,6 @@ import structure3223
 import pygrip
 import cv2
 import numpy
-from networktables import NetworkTable
 
 
 GUI_NORMAL = 0x10
@@ -33,7 +32,6 @@ def main():
 
 class Vision:
     def __init__(self, shape=(240, 320)):
-        self.setup_nt()
         shape3 = (shape[0], shape[1], 3)
         self.depth = numpy.zeros(shape=shape, dtype='uint16')
         self.ir = numpy.zeros(shape=shape, dtype='uint16')
@@ -75,12 +73,6 @@ class Vision:
             cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.display)
         else:
             numpy.copyto(dst=self.display, src=self.contour_img)
-
-    def setup_nt(self):
-        NetworkTable.setIPAddress('127.0.01')
-        NetworkTable.setClientMode()
-        NetworkTable.initialize()
-        self.sd = NetworkTable.getTable("SmartDashboard")
 
     def get_depths(self):
         structure3223.read_frame(depth=self.depth, ir=self.ir)
@@ -142,9 +134,6 @@ class Vision:
             avg_mm = -1
             avg_in = -1
             avg_ft = -1
-        # self.sd.putNumber('d_mm', avg_mm)
-        # self.sd.putNumber('d_in', avg_in)
-        # self.sd.putNumber('d_ft', avg_ft)
         rects = [cv2.boundingRect(c) for c in self.contours]
         if len(rects) != 0:
             min_x = min([x for (x, y, w, h) in rects])
