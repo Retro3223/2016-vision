@@ -130,6 +130,7 @@ class Vision:
         self.center_x = 160
         self.center_y = 120
         self.avg_mm = -1
+        self.min_dist = 1000
 
     def __enter__(self):
         structure3223.init()
@@ -158,6 +159,7 @@ class Vision:
     def get_depths(self):
         structure3223.read_frame(depth=self.depth, ir=self.ir)
         self.flip_inputs()
+        self.zero_out_min_dists()
         self.mask_shiny()
         self.filter_shiniest()
         cv2.bitwise_and(self.depth, self.mask16, dst=self.interesting_depths)
@@ -165,6 +167,11 @@ class Vision:
     def flip_inputs(self):
         cv2.flip(self.depth, 1, dst=self.depth)
         cv2.flip(self.ir, 1, dst=self.ir)
+
+    def zero_out_min_dists(self):
+        ixs = self.depth < self.min_dist
+        self.depth[ixs] = 0
+        self.ir[ixs] = 0
 
     def mask_shiny(self):
         pygrip.desaturate(self.ir, dst=self.tmp16_1)
@@ -181,7 +188,7 @@ class Vision:
         into_uint8(self.depth, dst=self.tmp8_1)
         cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.contour_img)
         # show all contours in blue
-        cv2.drawContours(self.contour_img, contours, -1, (255, 0, 0))
+        cv2.drawContours(self.contour_img, contours, -1, (255, 0, 0), cv2.FILLED)
         contours = [c for c in contours if self.filter(c)]
         contours.sort(key=lambda c: cv2.contourArea(c))
         cv2.drawContours(self.contour_img, contours, -1, (0, 255, 0))
