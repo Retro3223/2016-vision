@@ -1,4 +1,5 @@
 import structure3223
+import math
 import pygrip
 import cv2
 import numpy
@@ -290,7 +291,16 @@ class Vision:
                 target.max_y - target.min_y < self.max_target_height)
 
     def choose_target(self):
-        return 0
+        target_dists = []
+        for i, target in enumerate(self.targets):
+            dist = math.hypot(
+                (self.center_x - target.center_x),
+                (self.center_y - target.center_y))
+            target_dists.append((i, dist))
+
+        target_dists.sort(key=lambda x: x[1])
+        if len(target_dists) != 0:
+            return target_dists[0][0]
 
     def crosshair(self, pt1, pt2, img=None):
         if img is None:
