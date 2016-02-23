@@ -3,6 +3,7 @@ import math
 import pygrip
 import cv2
 import numpy
+from networktables import NetworkTable
 from angles import (
     h_angle,
     v_angle
@@ -131,6 +132,7 @@ class Vision:
         self.center_y = 120
         self.avg_mm = -1
         self.min_dist = 1000
+        self.sd = NetworkTable.getTable("SmartDashboard")
 
     def __enter__(self):
         structure3223.init()
@@ -254,6 +256,9 @@ class Vision:
                 target.theta_v = v_angle(target.center_y, CY=self.center_y)
 
             if j == chosen_j:
+                self.sd.putNumber("target_dist", target.avg_mm)
+                self.sd.putNumber("target_theta", target.theta)
+                self.sd.putNumber("target_theta_v", target.theta_v)
                 cv2.putText(self.contour_img, 
                     ("d= %.2f in" % target.avg_in), (10, 40),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255))
