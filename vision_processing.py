@@ -158,6 +158,14 @@ class Vision:
         else:
             numpy.copyto(dst=self.display, src=self.contour_img)
 
+    def setup_mode_listener():
+        self.sd.addTableListener(self.value_changed)
+
+    def value_changed(self, table, key, value, is_new):
+        if key == "structureMode":
+            if value in [0, 1, 2, 3, 4, 5]:
+                self.mode = value
+
     def get_depths(self):
         structure3223.read_frame(depth=self.depth, ir=self.ir)
         self.flip_inputs()

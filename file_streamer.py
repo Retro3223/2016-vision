@@ -36,7 +36,7 @@ class DataLogger:
         self.time_stop = None
         self.save_dir = None
         self.sd = NetworkTable.getTable("SmartDashboard")
-        self.sd.addTableListener(lambda t, k, v, n: self.value_changed(t,k,v,n))
+        self.sd.addTableListener(self.value_changed)
 
     def value_changed(self, table, key, value, is_new):
         if key == "autonomousBegin" and not self.match_running:
@@ -71,7 +71,8 @@ class DataLogger:
 file_name = os.path.join(args.output_dir, "structure.jpg")
 tmp_name = os.path.join(args.output_dir, "structure.tmp.jpg")
 vision = Vision()
-vision.mode = 100
+vision.mode = 5
+vision.setup_mode_listener()
 
 logger = DataLogger()
 
