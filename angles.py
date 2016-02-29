@@ -32,7 +32,7 @@ def v_angle(i, CY=None, N=240):
         CY = N / 2
     m = 45. / N
     b = -m * CY
-    return m * i + b
+    return - (m * i + b)
 
 
 def test():
