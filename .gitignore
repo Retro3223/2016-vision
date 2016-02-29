@@ -3,3 +3,6 @@ logs
 __pycache__
 *.so
 .ipynb_checkpoints
+*.jpg
+*.jpeg
+.cache
