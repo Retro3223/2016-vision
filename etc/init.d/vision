@@ -12,8 +12,8 @@
 ### END INIT INFO
 
 startthings() {
-    start-stop-daemon --pidfile=/var/run/vision.pid -b -m --start \
-        --exec /usr/bin/python3 -- /opt/2016-vision/file_streamer.py 
+     start-stop-daemon --pidfile=/var/run/vision.pid -b -m --start \
+        --startas /bin/bash -- -c "exec /opt/2016-vision/etc/visionstart.sh"
 }
 
 stopthings() {
