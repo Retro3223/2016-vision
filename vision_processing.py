@@ -1,4 +1,5 @@
 import structure3223
+import argparse
 import math
 import pygrip
 import cv2
@@ -8,7 +9,21 @@ from angles import (
     h_angle,
     v_angle
 )
+from data_logger import DataLogger, Replayer
 
+
+def setup_options_parser():
+    parser = argparse.ArgumentParser(
+        description='display structure sensor data.')
+    parser.add_argument(
+        '--replay-dir', dest='replay_dir', metavar='LDIR',
+        default=None,
+        help='specify directory of data to replay ' +
+             '(or don\'t specify and display live sensor')
+    parser.add_argument(
+        '--record', dest='record', default=False, action='store_true',
+        help='enable recording of data read from sensor')
+    return parser
 
 GUI_NORMAL = 0x10
 
@@ -16,26 +31,75 @@ GUI_NORMAL = 0x10
 def main():
     # display detected goal and distance from it
     # in a live window
-    cv2.namedWindow("View")
-    cv2.createTrackbar("mode", "View", 0, 7, lambda *args: None)
-    cv2.createTrackbar("area_threshold", "View", 10, 500,
-                       lambda *args: None)
-    with Vision() as vision:
-        while True:
-            vision.mode = cv2.getTrackbarPos("mode", "View")
-            vision.area_threshold = cv2.getTrackbarPos("area_threshold", "View")
-            vision.get_depths()
-            vision.idepth_stats()
-            vision.set_display()
-            cv2.imshow("View", vision.display)
-            x = cv2.waitKey(50)
-            if x % 128 == 27:
-                break
-            elif ord('0') <= x <= ord('7'):
-                cv2.setTrackbarPos("mode", "View", x - ord('0'))
-            elif ord('`') == x:
-                cv2.setTrackbarPos("mode", "View", 0)
-        cv2.destroyWindow("View")
+    parser = setup_options_parser()
+    args = parser.parse_args()
+    replaying = args.replay_dir is not None
+    recording = args.record
+    if replaying:
+        replayer = Replayer(args.replay_dir)
+        mode = "stopped"
+        cv2.namedWindow("View")
+        cv2.createTrackbar("mode", "View", 0, 7, lambda *args: None)
+        cv2.createTrackbar("area_threshold", "View", 10, 500,
+                        lambda *args: None)
+        cv2.createTrackbar("frame", "View", 0, len(replayer.frame_names), lambda *args: None)
+        with Vision(use_sensor=False) as vision:
+            while True:
+                vision.mode = cv2.getTrackbarPos("mode", "View")
+                vision.area_threshold = cv2.getTrackbarPos("area_threshold", "View")
+                _frame_i = cv2.getTrackbarPos("frame", "View")
+                if 0 <= _frame_i < len(replayer.frame_names):
+                    frame_i = _frame_i
+                vision.get_recorded_depths(replayer, frame_i)
+                vision.idepth_stats()
+                vision.set_display()
+                cv2.imshow("View", vision.display)
+                wait_delay = 50
+                if mode == "fw" and frame_i < len(replayer.frame_names) - 1:
+                    cv2.setTrackbarPos("frame", "View", frame_i+1)
+                    wait_delay = replayer.offset_milis(frame_i)
+                elif mode == "bw" and 0 < frame_i:
+                    cv2.setTrackbarPos("frame", "View", frame_i-1)
+                    wait_delay = replayer.offset_milis(frame_i-1)
+                x = cv2.waitKey(wait_delay)
+                if x % 128 == 27:
+                    break
+                elif ord('0') <= x <= ord('7'):
+                    cv2.setTrackbarPos("mode", "View", x - ord('0'))
+                elif ord('`') == x:
+                    cv2.setTrackbarPos("mode", "View", 0)
+                elif ord('s') == x:
+                    mode = "stopped"
+                elif ord('f') == x:
+                    mode = 'fw'
+                elif ord('b') == x:
+                    mode = 'bw'
+            cv2.destroyWindow("View")
+    else:
+        logger = DataLogger("logs")
+        if recording:
+            logger.begin_logging()
+        cv2.namedWindow("View")
+        cv2.createTrackbar("mode", "View", 0, 7, lambda *args: None)
+        cv2.createTrackbar("area_threshold", "View", 10, 500,
+                        lambda *args: None)
+        with Vision() as vision:
+            while True:
+                vision.mode = cv2.getTrackbarPos("mode", "View")
+                vision.area_threshold = cv2.getTrackbarPos("area_threshold", "View")
+                vision.get_depths()
+                vision.idepth_stats()
+                vision.set_display()
+                logger.log_data(vision.depth, vision.ir)
+                cv2.imshow("View", vision.display)
+                x = cv2.waitKey(50)
+                if x % 128 == 27:
+                    break
+                elif ord('0') <= x <= ord('7'):
+                    cv2.setTrackbarPos("mode", "View", x - ord('0'))
+                elif ord('`') == x:
+                    cv2.setTrackbarPos("mode", "View", 0)
+            cv2.destroyWindow("View")
 
 
 class Target:
@@ -56,15 +120,15 @@ class Target:
     def center_x(self):
         return (self.min_x + self.max_x) // 2
 
-    @property 
+    @property
     def center_y(self):
         return (self.min_y + self.max_y) // 2
 
-    @property 
+    @property
     def avg_in(self):
         return self.avg_mm / 25.4
 
-    @property 
+    @property
     def avg_ft(self):
         return self.avg_in / 12.
 
@@ -101,7 +165,7 @@ class Target:
         self.line((max_x, min_y), (max_x, min_y+LN), img)
 
 class Vision:
-    def __init__(self, shape=(240, 320)):
+    def __init__(self, shape=(240, 320), use_sensor=True):
         shape3 = (shape[0], shape[1], 3)
         self.depth = numpy.zeros(shape=shape, dtype='uint16')
         self.ir = numpy.zeros(shape=shape, dtype='uint16')
@@ -133,13 +197,16 @@ class Vision:
         self.avg_mm = -1
         self.min_dist = 1000
         self.sd = NetworkTable.getTable("SmartDashboard")
+        self.use_sensor = use_sensor
 
     def __enter__(self):
-        structure3223.init()
+        if self.use_sensor:
+            structure3223.init()
         return self
 
     def __exit__(self, *args):
-        structure3223.destroy()
+        if self.use_sensor:
+            structure3223.destroy()
 
     def set_display(self):
         if self.mode == 0:
@@ -169,6 +236,13 @@ class Vision:
     def get_depths(self):
         structure3223.read_frame(depth=self.depth, ir=self.ir)
         self.flip_inputs()
+        self.zero_out_min_dists()
+        self.mask_shiny()
+        self.filter_shiniest()
+        cv2.bitwise_and(self.depth, self.mask16, dst=self.interesting_depths)
+
+    def get_recorded_depths(self, replayer, i):
+        self.depth, self.ir = replayer.load_frame(i)
         self.zero_out_min_dists()
         self.mask_shiny()
         self.filter_shiniest()
@@ -223,7 +297,8 @@ class Vision:
         # of "interesting" distances (noninteresting distances are 0)
         # idepth is a 240 x 320 matrix of depth data
         depth_ixs = numpy.nonzero(self.interesting_depths)
-        structure3223.depth_to_xyz(depth=self.interesting_depths, xyz=self.xyz)
+        if self.use_sensor:
+            structure3223.depth_to_xyz(depth=self.interesting_depths, xyz=self.xyz)
         count = len(depth_ixs[0])
         if count != 0:
             sum = numpy.sum(self.interesting_depths[depth_ixs])
@@ -235,11 +310,11 @@ class Vision:
 
         chosen_j = self.choose_target()
 
-        cv2.line(self.contour_img, 
+        cv2.line(self.contour_img,
             (self.center_x-10, self.center_y),
             (self.center_x+10, self.center_y),
             (0, 0, 255), 2)
-        cv2.line(self.contour_img, 
+        cv2.line(self.contour_img,
             (self.center_x, self.center_y-10),
             (self.center_x, self.center_y+10),
             (0, 0, 255), 2)
@@ -251,7 +326,7 @@ class Vision:
             target.draw(self.contour_img)
             self.target_mask[:] = 0
             cv2.drawContours(
-                self.target_mask, 
+                self.target_mask,
                 target.contours, -1, (0xffff), cv2.FILLED)
             cv2.bitwise_and(
                 self.depth, self.target_mask, dst=self.target_depths)
@@ -267,13 +342,13 @@ class Vision:
                 self.sd.putNumber("target_dist", target.avg_mm)
                 self.sd.putNumber("target_theta", target.theta)
                 self.sd.putNumber("target_theta_v", target.theta_v)
-                cv2.putText(self.contour_img, 
+                cv2.putText(self.contour_img,
                     ("d= %.2f in" % target.avg_in), (10, 40),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255))
-                cv2.putText(self.contour_img, 
+                cv2.putText(self.contour_img,
                     ("theta= %.2f" % target.theta), (10, 60),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255))
-                cv2.putText(self.contour_img, 
+                cv2.putText(self.contour_img,
                     ("thetav= %.2f" % target.theta_v), (10, 80),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255))
 
@@ -307,7 +382,7 @@ class Vision:
         return targets
 
     def ok_target(self, target):
-        return (target.max_x - target.min_x < self.max_target_width and 
+        return (target.max_x - target.min_x < self.max_target_width and
                 target.max_y - target.min_y < self.max_target_height)
 
     def choose_target(self):

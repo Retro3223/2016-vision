@@ -2,22 +2,26 @@
 
 import cv2
 import argparse
-import os, os.path
-import time, datetime
-import numpy
+import os
+import os.path
+import time
 from vision_processing import Vision
 from networktables import NetworkTable
+from data_logger import DataLogger
+
 
 def setup_options_parser():
     parser = argparse.ArgumentParser(description='read structure sensor data.')
     parser.add_argument(
-        '--log-dir', dest='log_dir', metavar='LDIR', 
+        '--log-dir', dest='log_dir', metavar='LDIR',
         default='/mnt/',
         help='specify directory in which to log data')
-    parser.add_argument('--output-dir', metavar='ODIR', 
+    parser.add_argument(
+        '--output-dir', metavar='ODIR',
         default='/opt/',
         help='specify directory in which to deposit structure.jpg')
-    parser.add_argument('--robot', metavar='IP', dest='robot',
+    parser.add_argument(
+        '--robot', metavar='IP', dest='robot',
         default='roborio-3223-frc',
         help='specify ip address of robot')
     return parser
@@ -29,52 +33,13 @@ NetworkTable.setIPAddress(args.robot)
 NetworkTable.setClientMode()
 NetworkTable.initialize()
 
-class DataLogger:
-    def __init__(self):
-        self.match_running = False
-        self.time_start = None
-        self.time_stop = None
-        self.save_dir = None
-        self.sd = NetworkTable.getTable("SmartDashboard")
-        self.sd.addTableListener(self.value_changed)
-
-    def value_changed(self, table, key, value, is_new):
-        if key == "autonomousBegin" and not self.match_running:
-            self.match_running = True
-            self.save_dir = os.path.join(args.log_dir, 
-                datetime.datetime.now().isoformat())
-            try: 
-                os.makedirs(self.save_dir)
-            except:
-                # forget that idea, i guess
-                self.match_running = False
-            self.time_start = time.time()
-            self.time_stop = self.time_start + 150
-
-    def stop_when_done(self):
-        now = time.time()
-        if self.match_running and now > self.time_stop:
-            self.match_running = False
-
-    def log_data(self, depth, ir):
-        if self.match_running:
-            try:
-                now_milis = int(time.time() * 1000)
-                fnom = os.path.join('/mnt', self.save_dir, str(now_milis))
-                numpy.savez_compressed(fnom, {'depth': depth, 'ir': ir})
-            except:
-                # don't stop the main loop!
-                pass
-        self.stop_when_done()
-            
-
 file_name = os.path.join(args.output_dir, "structure.jpg")
 tmp_name = os.path.join(args.output_dir, "structure.tmp.jpg")
 vision = Vision()
 vision.mode = 5
 vision.setup_mode_listener()
 
-logger = DataLogger()
+logger = DataLogger(args.log_dir)
 
 now = time.time()
 
