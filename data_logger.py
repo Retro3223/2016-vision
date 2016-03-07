@@ -71,23 +71,29 @@ class Replayer:
     def load_frame(self, i):
         _i = i
         ir, depth = None, None
+        results = {}
         if isinstance(i, int):
             i = self.frame_names[i]
         try:
-            with numpy.load(os.path.join(self.log_dir, "%s.npz" % (i,))) as result:
-                ir = result['ir']
-                depth = result['depth']
+            nom = os.path.join(self.log_dir, "%s.npz" % (i,))
+            with numpy.load(nom) as recorded:
+                for k in recorded.keys():
+                    results[k] = recorded[k]
         except:
             print ('bad! ', _i, i)
             raise
 
-        return depth, ir
+        return results
 
     def offset_milis(self, i):
         if 0 <= i < len(self.frame_names)-1:
             milis_now = int(self.frame_names[i])
             milis_next = int(self.frame_names[i+1])
             return milis_next - milis_now
+
+    def file_name(self, i):
+        if 0 <= i < len(self.frame_names):
+            return os.path.join(self.log_dir, self.frame_names[i]+".npz")
 
 
 if __name__ == '__main__':

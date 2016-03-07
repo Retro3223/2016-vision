@@ -10,6 +10,7 @@ from angles import (
     v_angle
 )
 from data_logger import DataLogger, Replayer
+from xyz_converter import depth_to_xyz
 
 
 def setup_options_parser():
@@ -38,6 +39,8 @@ def main():
     if replaying:
         replayer = Replayer(args.replay_dir)
         mode = "stopped"
+        top = 120
+        left = 160
         cv2.namedWindow("View")
         cv2.createTrackbar("mode", "View", 0, 7, lambda *args: None)
         cv2.createTrackbar("area_threshold", "View", 10, 500,
@@ -53,6 +56,11 @@ def main():
                 vision.get_recorded_depths(replayer, frame_i)
                 vision.idepth_stats()
                 vision.set_display()
+                if mode == "stopped" and vision.mode == 4:
+                    cv2.rectangle(
+                        vision.display, (left, top), (left + 10, top+10), 
+                        (255, 0, 0))
+
                 cv2.imshow("View", vision.display)
                 wait_delay = 50
                 if mode == "fw" and frame_i < len(replayer.frame_names) - 1:
@@ -74,6 +82,26 @@ def main():
                     mode = 'fw'
                 elif ord('b') == x:
                     mode = 'bw'
+                elif ord('p') == x:
+                    print(replayer.file_name(frame_i))
+
+                if mode == "stopped" and vision.mode == 4:
+                    if x == 65361:
+                        # left arrow key
+                        left -= 2
+                    elif x == 65362:
+                        # up arrow key
+                        top -= 2
+                    elif x == 65363:
+                        # right arrow key
+                        left += 2
+                    elif x == 65364:
+                        # down arrow key
+                        top += 2
+                    elif x == ord('p'):
+                        print('x: ', vision.xyz[0, top:top+10, left:left+10])
+                        print('y: ', vision.xyz[1, top:top+10, left:left+10])
+                        print('z: ', vision.xyz[2, top:top+10, left:left+10])
             cv2.destroyWindow("View")
     else:
         logger = DataLogger("logs")
@@ -242,7 +270,10 @@ class Vision:
         cv2.bitwise_and(self.depth, self.mask16, dst=self.interesting_depths)
 
     def get_recorded_depths(self, replayer, i):
-        self.depth, self.ir = replayer.load_frame(i)
+        results = replayer.load_frame(i)
+        self.depth, self.ir = results['depth'], results['ir']
+        if 'xyz' in results:
+            self.xyz = results['xyz']
         self.zero_out_min_dists()
         self.mask_shiny()
         self.filter_shiniest()
@@ -297,8 +328,7 @@ class Vision:
         # of "interesting" distances (noninteresting distances are 0)
         # idepth is a 240 x 320 matrix of depth data
         depth_ixs = numpy.nonzero(self.interesting_depths)
-        if self.use_sensor:
-            structure3223.depth_to_xyz(depth=self.interesting_depths, xyz=self.xyz)
+        depth_to_xyz(depth=self.depth, xyz=self.xyz)
         count = len(depth_ixs[0])
         if count != 0:
             sum = numpy.sum(self.interesting_depths[depth_ixs])
