@@ -253,7 +253,7 @@ class Vision:
         else:
             numpy.copyto(dst=self.display, src=self.contour_img)
 
-    def setup_mode_listener():
+    def setup_mode_listener(self):
         self.sd.addTableListener(self.value_changed)
 
     def value_changed(self, table, key, value, is_new):

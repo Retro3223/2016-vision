@@ -1,5 +1,16 @@
 #!/bin/bash
 
+### BEGIN INIT INFO
+# Provides:          team3223-vision
+# Required-Start:    
+# Required-Stop:     
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: team 3223's vision software
+# Description:       read and log structure sensor data and output
+#                    target positions over network tables 
+### END INIT INFO
+
 startthings() {
     start-stop-daemon --pidfile=/var/run/vision.pid -b -m --start \
         --exec /usr/bin/python3 -- /opt/2016-vision/file_streamer.py 
