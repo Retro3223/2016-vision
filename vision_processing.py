@@ -1,4 +1,3 @@
-import structure3223
 import argparse
 import math
 import pygrip
@@ -84,6 +83,8 @@ def main():
                     mode = 'bw'
                 elif ord('p') == x:
                     print(replayer.file_name(frame_i))
+                elif ord('i') == x:
+                    cv2.imwrite("plop.jpg", vision.display);
 
                 if mode == "stopped" and vision.mode == 4:
                     if x == 65361:
@@ -229,11 +230,13 @@ class Vision:
 
     def __enter__(self):
         if self.use_sensor:
+            import structure3223
             structure3223.init()
         return self
 
     def __exit__(self, *args):
         if self.use_sensor:
+            import structure3223
             structure3223.destroy()
 
     def set_display(self):
@@ -262,6 +265,7 @@ class Vision:
                 self.mode = value
 
     def get_depths(self):
+        import structure3223
         structure3223.read_frame(depth=self.depth, ir=self.ir)
         self.flip_inputs()
         self.zero_out_min_dists()

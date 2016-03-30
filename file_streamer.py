@@ -22,7 +22,7 @@ def setup_options_parser():
         help='specify directory in which to deposit structure.jpg')
     parser.add_argument(
         '--robot', metavar='IP', dest='robot',
-        default='roborio-3223-frc',
+        default='roborio-3223-frc.local',
         help='specify ip address of robot')
     return parser
 

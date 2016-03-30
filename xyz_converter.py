@@ -24,3 +24,11 @@ def depth_to_xyz(depth, xyz, shape=(240, 320)):
     xyz[2, :] = depth;
 
     return xyz
+
+def depth_to_xyz2(depth, xyz, shape=(240, 320)):
+    vangle = VFOV * (-j/240 + 0.5)
+    hangle = HFOV * (i/320 - 0.5)
+    x = depth * cos(vangle) * sin(hangle)
+    y = depth * sin(vangle) 
+    z = depth * cos(vangle) * cos(hangle)
+    pass
