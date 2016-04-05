@@ -8,6 +8,9 @@ from angles import (
     h_angle,
     v_angle
 )
+from trajectory import (
+    on_trajectory
+)
 from data_logger import DataLogger, Replayer
 from xyz_converter import depth_to_xyz
 
@@ -110,12 +113,19 @@ def main():
             logger.begin_logging()
         cv2.namedWindow("View")
         cv2.createTrackbar("mode", "View", 0, 7, lambda *args: None)
+        '''
         cv2.createTrackbar("area_threshold", "View", 10, 500,
+                        lambda *args: None)
+        '''
+        cv2.createTrackbar("angle", "View", 0, 90,
+                        lambda *args: None)
+        cv2.createTrackbar("velocity", "View", 1000, 10000,
                         lambda *args: None)
         with Vision() as vision:
             while True:
                 vision.mode = cv2.getTrackbarPos("mode", "View")
-                vision.area_threshold = cv2.getTrackbarPos("area_threshold", "View")
+                #vision.area_threshold = cv2.getTrackbarPos("area_threshold", "View")
+                vision.angle = cv2.getTrackbarPos("angle", "View")
                 vision.get_depths()
                 vision.idepth_stats()
                 vision.set_display()
@@ -223,6 +233,9 @@ class Vision:
         self.max_target_count = 3
         self.center_x = 160
         self.center_y = 120
+        self.angle = 45
+        self.exit_velocity = 6200 # mm/s
+        self.targeting = False
         self.avg_mm = -1
         self.min_dist = 1000
         self.sd = NetworkTable.getTable("SmartDashboard")
@@ -263,6 +276,10 @@ class Vision:
         if key == "structureMode":
             if value in [0, 1, 2, 3, 4, 5]:
                 self.mode = value
+        elif key == "shooter_pitch2":
+            self.angle = value
+        elif key == "exit_velocity":
+            self.exit_velocity = value
 
     def get_depths(self):
         import structure3223
@@ -344,16 +361,6 @@ class Vision:
 
         chosen_j = self.choose_target()
 
-        cv2.line(self.contour_img,
-            (self.center_x-10, self.center_y),
-            (self.center_x+10, self.center_y),
-            (0, 0, 255), 2)
-        cv2.line(self.contour_img,
-            (self.center_x, self.center_y-10),
-            (self.center_x, self.center_y+10),
-            (0, 0, 255), 2)
-
-
         for j, target in enumerate(self.targets):
             if j == chosen_j:
                 target.draw_color = (0, 255, 0)
@@ -385,6 +392,63 @@ class Vision:
                 cv2.putText(self.contour_img,
                     ("thetav= %.2f" % target.theta_v), (10, 80),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255))
+
+        self.predict_impact(chosen_j)
+
+    def predict_impact(self, chosen_j):
+        def get_angle(y_pixel):
+            return self.angle - v_angle(y_pixel, CY=self.center_y)
+
+        def calc_point(d, y_pixel):
+            mth = get_angle(y_pixel)
+            x = d * math.cos(math.radians(mth))
+            y = d * math.sin(math.radians(mth))
+            return x, y
+        
+        def plot_impact(i, d):
+            half_angle = math.degrees(math.atan(127. / d))
+            pixel_radius = (half_angle / (58. / 320.))
+            cv2.circle(self.contour_img, 
+                    (self.center_x, i), int(pixel_radius), 
+                    (0, 0, 255), thickness=1)
+
+        def get_untargeted_dist(i):
+            mzs = self.depth[i-5:i+5,self.center_x-5:self.center_x+5]
+            mzs = mzs.flatten()
+            mzs = mzs[mzs.nonzero()]
+            if len(mzs) != 0 and mzs.mean() != 0:
+                mz = mzs.mean()
+                return mz
+            return 0
+
+        self.targeting = False
+        if chosen_j is not None: 
+            da_target = self.targets[chosen_j]
+            if da_target.min_x <= self.center_x <= da_target.max_x and da_target.avg_mm != -1:
+                self.targeting = True
+                target_x, target_y = calc_point(
+                        da_target.avg_mm, da_target.center_y)
+
+        possible_i = []
+        if self.targeting:
+            for i in range(self.center_y, 239, 2):
+                mth = get_angle(i)
+                dist = target_x / math.cos(math.radians(mth))
+                x, y = calc_point(dist, i)
+                if on_trajectory(self.exit_velocity, self.angle, x, y):
+                    possible_i.append((i, dist))
+        else:
+            for i in range(self.center_y, 239, 2):
+                mz = get_untargeted_dist(i)
+                if mz != 0:
+                    x, y = calc_point(mz, i)
+                    if on_trajectory(self.exit_velocity, self.angle, x, y):
+                        possible_i.append((i, mz))
+        if possible_i:
+            i, dist = possible_i[len(possible_i)//2]
+            plot_impact(i, dist)
+
+        self.crosshair()
 
     @property
     def avg_ft(self):
@@ -431,12 +495,21 @@ class Vision:
         if len(target_dists) != 0:
             return target_dists[0][0]
 
-    def crosshair(self, pt1, pt2, img=None):
+    def crosshair(self, img=None):
         if img is None:
             img = self.contour_img
-        corner_color = (0, 0, 255)
-        corner_thickness = 2
-        cv2.line(img, pt1, pt2, corner_color, corner_thickness)
+        corner_thickness = 1
+        color = (0, 0, 255)
+        if self.targeting:
+            color = (255, 0, 255)
+        cv2.line(img,
+            (self.center_x-10, self.center_y),
+            (self.center_x+10, self.center_y),
+            color, corner_thickness)
+        cv2.line(img,
+            (self.center_x, self.center_y-10),
+            (self.center_x, self.center_y+10),
+            color, 1)
 
 
 def into_uint8(img, dst):

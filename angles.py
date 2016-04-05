@@ -18,6 +18,7 @@
 # angle = m*i + b
 
 
+# unit: degrees
 def h_angle(i, CX=None, N=320):
     if CX is None:
         CX = N / 2
@@ -27,6 +28,7 @@ def h_angle(i, CX=None, N=320):
 
 
 # similar for vertical angle
+# unit: degrees
 def v_angle(i, CY=None, N=240):
     if CY is None:
         CY = N / 2
