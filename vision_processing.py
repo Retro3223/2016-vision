@@ -397,7 +397,7 @@ class Vision:
 
     def predict_impact(self, chosen_j):
         def get_angle(y_pixel):
-            return self.angle - v_angle(y_pixel, CY=self.center_y)
+            return self.angle + v_angle(y_pixel, CY=self.center_y)
 
         def calc_point(d, y_pixel):
             mth = get_angle(y_pixel)
