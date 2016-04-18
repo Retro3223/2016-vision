@@ -12,8 +12,17 @@ from trajectory import (
     on_trajectory
 )
 from data_logger import DataLogger, Replayer
-from xyz_converter import depth_to_xyz
+from xyz_converter import (
+    depth_to_xyz2,
+    distance,
+    midpoint,
+)
 
+def mm_to_in(mms):
+    """
+    convert millimeters to inches
+    """
+    return mms / 25.4
 
 def setup_options_parser():
     parser = argparse.ArgumentParser(
@@ -165,7 +174,7 @@ class Target:
 
     @property
     def avg_in(self):
-        return self.avg_mm / 25.4
+        return mm_to_in(self.avg_mm)
 
     @property
     def avg_ft(self):
@@ -349,7 +358,7 @@ class Vision:
         # of "interesting" distances (noninteresting distances are 0)
         # idepth is a 240 x 320 matrix of depth data
         depth_ixs = numpy.nonzero(self.interesting_depths)
-        depth_to_xyz(depth=self.depth, xyz=self.xyz)
+        depth_to_xyz2(depth=self.depth, xyz=self.xyz)
         count = len(depth_ixs[0])
         if count != 0:
             sum = numpy.sum(self.interesting_depths[depth_ixs])
@@ -392,8 +401,86 @@ class Vision:
                 cv2.putText(self.contour_img,
                     ("thetav= %.2f" % target.theta_v), (10, 80),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255))
+            else:
+                self.sd.putNumber("target_dist", -1)
+                self.sd.putNumber("target_theta", 1000)
+                self.sd.putNumber("target_theta_v", 1000)
+
 
         self.predict_impact(chosen_j)
+        self.measure_target(chosen_j)
+
+    def measure_target(self, chosen_j):
+        from scipy.spatial.distance import pdist
+        from scipy.interpolate import interp1d
+        if chosen_j is None:
+            return
+        target = self.targets[chosen_j]
+        flattened_contours = flatten_contours(target.contours)
+        color = rgbhex2bgr(0xf9c308)
+        box = minAreaBox(flattened_contours)
+        pt1 = midpoint(box[0], box[1])
+        pt2 = midpoint(box[2], box[3])
+
+        things1 = self.measure_target_width_on_segment(pt1, pt2)
+        if things1 is not None:
+            self.display_measurement(things1)
+
+        pt3 = midpoint(box[0], box[3])
+        pt4 = midpoint(box[1], box[2])
+
+        things2 = self.measure_target_width_on_segment(pt3, pt4)
+        if things2 is not None:
+            self.display_measurement(things2)
+
+    def measure_target_width_on_segment(self, pt1, pt2):
+        """
+        Given the line segment L defined by 2d points pt1 and pt2 from a camera 
+        frame, find the points pt3 and pt4 the nearest points to pt1 and pt2 
+        on L that are masked according to self.mask8. Then calculate the 
+        distance D between 3d points pt5 and pt6 in self.xyz which 
+        correspond to pt3 and pt4.
+        return pt3, pt4, D, fx, fy,
+            where 
+                pt3 = (x, y)
+                pt4 = (x, y)
+                fx is the function f(distance from pt3 on L) = x
+                fy is the function f(distance from pt3 on L) = y
+        If anything goes wrong, return None
+        """
+        from scipy.interpolate import interp1d
+
+        dist2d = distance(pt1, pt2)
+        interpx = interp1d([0, dist2d], [pt1[0], pt2[0]])
+        interpy = interp1d([0, dist2d], [pt1[1], pt2[1]])
+        t = numpy.linspace(0, int(dist2d), int(dist2d)+1)
+        xs = numpy.int0(interpx(t))
+        ys = numpy.int0(interpy(t))
+        ixs, = self.mask8[ys, xs].nonzero()
+        if len(ixs) >= 2:
+            x1 = xs[ixs[0]]
+            y1 = ys[ixs[0]]
+            x2 = xs[ixs[-1]]
+            y2 = ys[ixs[-1]]
+            xyz1 = self.xyz[:, y1, x1]
+            xyz2 = self.xyz[:, y2, x2]
+            dist3d = distance(xyz1, xyz2)
+            interpx2 = lambda d: (x2-x1)*d/dist2d + x1
+            interpy2 = lambda d: (y2-y1)*d/dist2d + y1
+            return (x1, y1), (x2, y2), dist3d, interpx2, interpy2
+
+    def display_measurement(self, stuff):
+        pt1, pt2, dist, fx, fy = stuff
+        dist2d = distance(pt1, pt2)
+        txt_x = int(fx(dist2d+20))
+        txt_y = int(fy(dist2d+20))
+        cv2.circle(self.contour_img, pt1, 2, rgbhex2bgr(0xf7ff1e), 
+                thickness=2)
+        cv2.circle(self.contour_img, pt2, 2, rgbhex2bgr(0xf7ff1e), 
+                thickness=2)
+        cv2.putText(self.contour_img,
+            ("%.2f in" % mm_to_in(dist)), (txt_x, txt_y),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.6, rgbhex2bgr(0xf7ff1e))
 
     def predict_impact(self, chosen_j):
         def get_angle(y_pixel):
@@ -544,6 +631,31 @@ def munge_floats_to_img(xyz, dst):
         else:
             dst[:,:,i] = xyz[i,:,:] * 255. / xyz[i, :,:].max()
     return dst
+
+
+def rgbhex2bgr(hexcolor):
+    b = hexcolor & 0xff
+    g = (hexcolor >> 8) & 0xff
+    r = (hexcolor >> 16) & 0xff
+    return (b, g, r)
+
+
+def minAreaBox(contours):
+    rect2 = cv2.minAreaRect(contours)
+    box = cv2.boxPoints(rect2)
+    box = numpy.int0(box)
+    return box
+
+
+def flatten_contours(contours):
+    dim1 = sum([x.shape[0] for x in contours])
+    flattened_contours = numpy.empty(shape=(dim1, 1, 2), dtype='int32')
+    i = 0
+    for contour in contours:
+        cnt = contour.shape[0]
+        flattened_contours[i:i+cnt, :, :] = contour
+        i += cnt
+    return flattened_contours
 
 
 if __name__ == '__main__':

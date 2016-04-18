@@ -7,6 +7,7 @@ vertical_fov = 0.799344
 nx_cache = {}
 ny_cache = {}
 
+
 def depth_to_xyz(depth, xyz, shape=(240, 320)):
     if shape not in nx_cache:
         ix = numpy.indices(shape)
@@ -21,14 +22,33 @@ def depth_to_xyz(depth, xyz, shape=(240, 320)):
         ny = ny_cache[shape]
     xyz[0, :] = nx * depth
     xyz[1, :] = ny * depth
-    xyz[2, :] = depth;
+    xyz[2, :] = depth
 
     return xyz
 
+
 def depth_to_xyz2(depth, xyz, shape=(240, 320)):
-    vangle = VFOV * (-j/240 + 0.5)
-    hangle = HFOV * (i/320 - 0.5)
-    x = depth * cos(vangle) * sin(hangle)
-    y = depth * sin(vangle) 
-    z = depth * cos(vangle) * cos(hangle)
-    pass
+    j, i = numpy.indices(shape)
+    vangle = vertical_fov * (-j/240. + 0.5)
+    hangle = horizontal_fov * (i/320. - 0.5)
+    xyz[0] = depth * numpy.cos(vangle) * numpy.sin(hangle)
+    xyz[1] = depth * numpy.sin(vangle) 
+    xyz[2] = depth * numpy.cos(vangle) * numpy.cos(hangle)
+    return xyz
+
+
+def distance(pt1, pt2):
+    """
+    distance between points pt1 and pt2, which are points in 2d or 3d 
+    cartesian coordinate space
+    """
+    from scipy.spatial.distance import pdist
+    dim = len(pt1)
+    pts = numpy.empty((2, dim), dtype='float32')
+    pts[0] = pt1
+    pts[1] = pt2
+    return pdist(pts)[0]
+
+
+def midpoint(pt1, pt2):
+    return ((pt1[0]+pt2[0])*0.5, (pt1[1]+pt2[1])*0.5)
