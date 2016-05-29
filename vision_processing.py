@@ -17,6 +17,10 @@ from xyz_converter import (
     distance,
     midpoint,
 )
+try:
+    import libpclproc
+except:
+    libpclproc = None
 
 def mm_to_in(mms):
     """
@@ -47,6 +51,7 @@ def main():
     args = parser.parse_args()
     replaying = args.replay_dir is not None
     recording = args.record
+    pclviewer = None
     if replaying:
         replayer = Replayer(args.replay_dir)
         mode = "stopped"
@@ -71,6 +76,10 @@ def main():
                     cv2.rectangle(
                         vision.display, (left, top), (left + 10, top+10), 
                         (255, 0, 0))
+
+                if mode != "stopped" and pclviewer is not None:
+                    pclviewer.updateCloud(vision.xyz)
+
 
                 cv2.imshow("View", vision.display)
                 wait_delay = 50
@@ -97,6 +106,14 @@ def main():
                     print(replayer.file_name(frame_i))
                 elif ord('i') == x:
                     cv2.imwrite("plop.jpg", vision.display);
+                elif ord('z') == x and libpclproc is not None:
+                    if pclviewer is None:
+                        pclviewer = libpclproc.process(vision.xyz)
+                    else:
+                        pclviewer.close()
+                        pclviewer = None
+                if pclviewer is not None and not pclviewer.wasStopped():
+                    pclviewer.spin()
 
                 if mode == "stopped" and vision.mode == 4:
                     if x == 65361:
