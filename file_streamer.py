@@ -50,4 +50,3 @@ with vision:
         cv2.imwrite(tmp_name, vision.display)
         os.rename(tmp_name, file_name)
         logger.log_data(vision.depth, vision.ir)
-        time.sleep(0.05)
