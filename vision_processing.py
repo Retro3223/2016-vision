@@ -291,9 +291,28 @@ class Vision:
             into_uint8(self.interesting_depths, dst=self.tmp8_1)
             cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.display)
         elif self.mode == 4:
-            munge_floats_to_img(self.xyz, dst=self.display)
+            self.detect_contours()
+            #munge_floats_to_img(self.xyz, dst=self.display)
         else:
             numpy.copyto(dst=self.display, src=self.contour_img)
+
+    def detect_contours(self):
+        depth_a = self.depth[:, 0:-1]
+        depth_b = self.depth[:, 1:]
+        depth_diff = numpy.absolute((depth_a - depth_b).astype('int16'))
+        idx = depth_diff < self.area_threshold * 10
+        depth_diff[idx] = 0
+        depth8 = self.tmp8_1
+        depth8[:, :] = 255
+        depth8[idx] = 0
+        #into_uint8(depth_diff, dst=depth8[:, 0:-1])
+        """
+        things = cv2.findContours(
+            depth8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        contours = things[1]
+        """
+        cv2.cvtColor(depth8, cv2.COLOR_GRAY2BGR, dst=self.display)
+        #cv2.drawContours(self.display, contours, -1, (244, 66, 241), cv2.FILLED)
 
     def setup_mode_listener(self):
         self.sd.addTableListener(self.value_changed)
