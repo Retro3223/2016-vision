@@ -182,6 +182,23 @@ class Vision:
                 (0, 0, 255), 1)
             self.display[mask == 255, :] = 255
             return self.display
+    
+    def hg_draw_hud(self):
+        if self.mode == 2:
+           z0 = 2000
+           """self.display[:] = 0"""
+           cv2.circle(self.display,(320//2,240//2),2,(0,255,0),1)
+           #cv2.circle(self.display,(100,60),8,(0,0,255),-1)
+           if len(self.contours) ==0: return
+           contour = self.contours[0]
+           a = cv2.boundingRect(contour) 
+           #print(a)
+           b = ((a[1]+(a[1]+a[3]))//2,(a[0]+(a[0]+a[2]))//2)
+           #print(b)
+           x_goal = self.xyz[0,b[1],b[0]]
+           z_goal = self.xyz[2,b[1],b[0]]
+           dz = z_goal - z0
+           cv2.circle(self.display,b,8,(0,0,255),-1)
 
     def process_depths(self):
         """
@@ -196,6 +213,7 @@ class Vision:
             depth_to_xyz2(depth=self.depth, xyz=self.xyz)
             self.hg_filter_shiniest()
             self.hg_find_edges()
+            self.hg_draw_hud()
         else:
             pass
         """
