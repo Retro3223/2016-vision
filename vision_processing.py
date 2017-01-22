@@ -1,9 +1,23 @@
-import argparse
 import math
 import pygrip
 import cv2
 import numpy
 from networktables import NetworkTable
+from target import (
+    Target
+)
+from numpy_pool import (
+    NumpyPool
+)
+from utils import (
+    mm_to_in,
+    into_uint8,
+    into_uint16_mask,
+    munge_floats_to_img,
+    flatten_contours,
+    rgbhex2bgr,
+    minAreaBox,
+)
 from angles import (
     h_angle,
     v_angle
@@ -22,230 +36,33 @@ try:
 except:
     libpclproc = None
 
-def mm_to_in(mms):
-    """
-    convert millimeters to inches
-    """
-    return mms / 25.4
+# display modes
+DISP_DEPTH = 0
+DISP_RAW_IR = 1
+DISP_IR_MASK1 = 2
+DISP_IR_MASK2 = 3
+DISP_ALL_CONTOURS = 4
+DISP_KEPT_CONTOURS = 5
+DISP_IR_MASK3 = 6
 
-def setup_options_parser():
-    parser = argparse.ArgumentParser(
-        description='display structure sensor data.')
-    parser.add_argument(
-        '--replay-dir', dest='replay_dir', metavar='LDIR',
-        default=None,
-        help='specify directory of data to replay ' +
-             '(or don\'t specify and display live sensor')
-    parser.add_argument(
-        '--record', dest='record', default=False, action='store_true',
-        help='enable recording of data read from sensor')
-    return parser
-
-GUI_NORMAL = 0x10
-
-
-def main():
-    # display detected goal and distance from it
-    # in a live window
-    parser = setup_options_parser()
-    args = parser.parse_args()
-    replaying = args.replay_dir is not None
-    recording = args.record
-    pclviewer = None
-    if replaying:
-        replayer = Replayer(args.replay_dir)
-        mode = "stopped"
-        top = 120
-        left = 160
-        cv2.namedWindow("View")
-        cv2.createTrackbar("mode", "View", 0, 7, lambda *args: None)
-        cv2.createTrackbar("area_threshold", "View", 10, 500,
-                        lambda *args: None)
-        cv2.createTrackbar("frame", "View", 0, len(replayer.frame_names), lambda *args: None)
-        with Vision(use_sensor=False) as vision:
-            while True:
-                vision.mode = cv2.getTrackbarPos("mode", "View")
-                vision.area_threshold = cv2.getTrackbarPos("area_threshold", "View")
-                _frame_i = cv2.getTrackbarPos("frame", "View")
-                if 0 <= _frame_i < len(replayer.frame_names):
-                    frame_i = _frame_i
-                vision.get_recorded_depths(replayer, frame_i)
-                vision.idepth_stats()
-                vision.set_display()
-                if mode == "stopped" and vision.mode == 4:
-                    cv2.rectangle(
-                        vision.display, (left, top), (left + 10, top+10), 
-                        (255, 0, 0))
-
-                if mode != "stopped" and pclviewer is not None:
-                    pclviewer.updateCloud(vision.xyz)
-
-
-                cv2.imshow("View", vision.display)
-                wait_delay = 50
-                if mode == "fw" and frame_i < len(replayer.frame_names) - 1:
-                    cv2.setTrackbarPos("frame", "View", frame_i+1)
-                    wait_delay = replayer.offset_milis(frame_i)
-                elif mode == "bw" and 0 < frame_i:
-                    cv2.setTrackbarPos("frame", "View", frame_i-1)
-                    wait_delay = replayer.offset_milis(frame_i-1)
-                x = cv2.waitKey(wait_delay)
-                if x % 128 == 27:
-                    break
-                elif ord('0') <= x <= ord('7'):
-                    cv2.setTrackbarPos("mode", "View", x - ord('0'))
-                elif ord('`') == x:
-                    cv2.setTrackbarPos("mode", "View", 0)
-                elif ord('s') == x:
-                    mode = "stopped"
-                elif ord('f') == x:
-                    mode = 'fw'
-                elif ord('b') == x:
-                    mode = 'bw'
-                elif ord('p') == x:
-                    print(replayer.file_name(frame_i))
-                elif ord('i') == x:
-                    cv2.imwrite("plop.jpg", vision.display);
-                elif ord('z') == x and libpclproc is not None:
-                    if pclviewer is None:
-                        pclviewer = libpclproc.process(vision.xyz)
-                    else:
-                        pclviewer.close()
-                        pclviewer = None
-                if pclviewer is not None and not pclviewer.wasStopped():
-                    pclviewer.spin()
-
-                if mode == "stopped" and vision.mode == 4:
-                    if x == 65361:
-                        # left arrow key
-                        left -= 2
-                    elif x == 65362:
-                        # up arrow key
-                        top -= 2
-                    elif x == 65363:
-                        # right arrow key
-                        left += 2
-                    elif x == 65364:
-                        # down arrow key
-                        top += 2
-                    elif x == ord('p'):
-                        print('x: ', vision.xyz[0, top:top+10, left:left+10])
-                        print('y: ', vision.xyz[1, top:top+10, left:left+10])
-                        print('z: ', vision.xyz[2, top:top+10, left:left+10])
-            cv2.destroyWindow("View")
-    else:
-        logger = DataLogger("logs")
-        if recording:
-            logger.begin_logging()
-        cv2.namedWindow("View")
-        cv2.createTrackbar("mode", "View", 0, 7, lambda *args: None)
-        '''
-        cv2.createTrackbar("area_threshold", "View", 10, 500,
-                        lambda *args: None)
-        '''
-        cv2.createTrackbar("angle", "View", 0, 90,
-                        lambda *args: None)
-        cv2.createTrackbar("velocity", "View", 1000, 10000,
-                        lambda *args: None)
-        with Vision() as vision:
-            while True:
-                vision.mode = cv2.getTrackbarPos("mode", "View")
-                #vision.area_threshold = cv2.getTrackbarPos("area_threshold", "View")
-                vision.angle = cv2.getTrackbarPos("angle", "View")
-                vision.get_depths()
-                vision.idepth_stats()
-                vision.set_display()
-                logger.log_data(vision.depth, vision.ir)
-                cv2.imshow("View", vision.display)
-                x = cv2.waitKey(50)
-                if x % 128 == 27:
-                    break
-                elif ord('0') <= x <= ord('7'):
-                    cv2.setTrackbarPos("mode", "View", x - ord('0'))
-                elif ord('`') == x:
-                    cv2.setTrackbarPos("mode", "View", 0)
-            cv2.destroyWindow("View")
-
-
-class Target:
-    def __init__(self, min_x, max_x, min_y, max_y, contours):
-        self.min_x = min_x
-        self.max_x = max_x
-        self.min_y = min_y
-        self.max_y = max_y
-        self.contours = contours
-        self.draw_len = 5
-        self.draw_thickness = 2
-        self.draw_color = (0, 0, 255)
-        self.avg_mm = -1
-        self.theta = 1000
-        self.theta_v = 1000
-
-    @property
-    def center_x(self):
-        return (self.min_x + self.max_x) // 2
-
-    @property
-    def center_y(self):
-        return (self.min_y + self.max_y) // 2
-
-    @property
-    def avg_in(self):
-        return mm_to_in(self.avg_mm)
-
-    @property
-    def avg_ft(self):
-        return self.avg_in / 12.
-
-    @staticmethod
-    def merge(target1, target2):
-        return Target(
-            min_x=min(target1.min_x, target2.min_x),
-            max_x=max(target1.max_x, target2.max_x),
-            min_y=min(target1.min_y, target2.min_y),
-            max_y=max(target1.max_y, target2.max_y),
-            contours=target1.contours + target2.contours,
-        )
-
-    def line(self, pt1, pt2, img):
-        cv2.line(img, pt1, pt2, self.draw_color, self.draw_thickness)
-
-    def draw(self, img):
-        LN = self.draw_len
-        cx = self.center_x
-        cy = self.center_y
-        min_x, max_x = self.min_x, self.max_x
-        min_y, max_y = self.min_y, self.max_y
-        # crosshairs
-        self.line((cx, cy-LN), (cx, cy+LN), img)
-        self.line((cx-LN, cy), (cx+LN, cy), img)
-        # corners
-        self.line((min_x, min_y), (min_x+LN, min_y), img)
-        self.line((min_x, min_y), (min_x, min_y+LN), img)
-        self.line((min_x, max_y), (min_x+LN, max_y), img)
-        self.line((min_x, max_y), (min_x, max_y-LN), img)
-        self.line((max_x, max_y), (max_x-LN, max_y), img)
-        self.line((max_x, max_y), (max_x, max_y-LN), img)
-        self.line((max_x, min_y), (max_x-LN, min_y), img)
-        self.line((max_x, min_y), (max_x, min_y+LN), img)
 
 class Vision:
     def __init__(self, shape=(240, 320), use_sensor=True):
+        pool = self.pool = NumpyPool(shape=shape)
         shape3 = (shape[0], shape[1], 3)
-        self.depth = numpy.zeros(shape=shape, dtype='uint16')
-        self.ir = numpy.zeros(shape=shape, dtype='uint16')
-        self.tmp16_1 = numpy.zeros(shape=shape, dtype='uint16')
-        self.display = numpy.zeros(shape=shape3, dtype='uint8')
-        self.tmp8_1 = numpy.zeros(shape=shape, dtype='uint8')
-        self.tmp8_2 = numpy.zeros(shape=shape, dtype='uint8')
-        self.mask8 = numpy.zeros(shape=shape, dtype='uint8')
-        self.mask16 = numpy.zeros(shape=shape, dtype='uint16')
+        self.depth = pool.get_raw()
+        self.ir = pool.get_raw()
+        self.display = pool.get_color()
+        self.mask8 = pool.get_gray()
+        self.unblurred_mask8 = pool.get_gray()
+        self.mask16 = pool.get_raw()
         self.interesting_depths = numpy.zeros(shape=shape, dtype='uint16')
-        self.target_mask = numpy.zeros(shape=shape, dtype='uint16')
-        self.target_depths = numpy.zeros(shape=shape, dtype='uint16')
-        self.tmp83_1 = numpy.zeros(shape=shape3, dtype='uint8')
-        self.contour_img = numpy.zeros(shape=shape3, dtype='uint8')
-        self.xyz = numpy.zeros(shape=(3, shape[0], shape[1]), dtype='float32')
+        self.target_depths = pool.get_raw()
+        self.contour_img = pool.get_color()
+        self.xyz = pool.get_xyz()
+
+        self.is_hg_position = True
+        self.hg_angle = 35.0 # degrees
         self.mode = 0
         self.area_threshold = 10
         self.rat_min = 0.1
@@ -280,16 +97,22 @@ class Vision:
 
     def set_display(self):
         if self.mode == 0:
-            into_uint8(self.depth, dst=self.tmp8_1)
-            cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.display)
+            temp = self.pool.get_gray()
+            into_uint8(self.depth, dst=temp)
+            cv2.cvtColor(temp, cv2.COLOR_GRAY2BGR, dst=self.display)
+            self.pool.release_gray(temp)
         elif self.mode == 1:
-            into_uint8(self.ir, dst=self.tmp8_1)
-            cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.display)
+            temp = self.pool.get_gray()
+            into_uint8(self.ir, dst=temp)
+            cv2.cvtColor(temp, cv2.COLOR_GRAY2BGR, dst=self.display)
+            self.pool.release_gray(temp)
         elif self.mode == 2:
             cv2.cvtColor(self.mask8, cv2.COLOR_GRAY2BGR, dst=self.display)
         elif self.mode == 3:
-            into_uint8(self.interesting_depths, dst=self.tmp8_1)
-            cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.display)
+            temp = self.pool.get_gray()
+            into_uint8(self.interesting_depths, dst=temp)
+            cv2.cvtColor(temp, cv2.COLOR_GRAY2BGR, dst=self.display)
+            self.pool.release_gray(temp)
         elif self.mode == 4:
             munge_floats_to_img(self.xyz, dst=self.display)
         else:
@@ -301,7 +124,7 @@ class Vision:
     def value_changed(self, table, key, value, is_new):
         if key == "structureMode":
             if value in [0, 1, 2, 3, 4, 5]:
-                self.mode = value
+                self.set_mode(value)
         elif key == "shooter_pitch2":
             self.angle = value
         elif key == "exit_velocity":
@@ -311,69 +134,73 @@ class Vision:
         import structure3223
         structure3223.read_frame(depth=self.depth, ir=self.ir)
         self.flip_inputs()
-        self.zero_out_min_dists()
-        self.mask_shiny()
-        self.filter_shiniest()
-        cv2.bitwise_and(self.depth, self.mask16, dst=self.interesting_depths)
 
     def get_recorded_depths(self, replayer, i):
         results = replayer.load_frame(i)
         self.depth, self.ir = results['depth'], results['ir']
         if 'xyz' in results:
             self.xyz = results['xyz']
-        self.zero_out_min_dists()
-        self.mask_shiny()
-        self.filter_shiniest()
-        cv2.bitwise_and(self.depth, self.mask16, dst=self.interesting_depths)
 
     def flip_inputs(self):
         cv2.flip(self.depth, 1, dst=self.depth)
         cv2.flip(self.ir, 1, dst=self.ir)
 
-    def zero_out_min_dists(self):
-        ixs = self.depth < self.min_dist
-        self.depth[ixs] = 0
-        self.ir[ixs] = 0
+    def display_depth(self):
+        if self.mode == DISP_DEPTH:
+            temp = self.pool.get_gray()
+            into_uint8(self.depth, dst=temp)
+            cv2.cvtColor(temp, cv2.COLOR_GRAY2BGR, dst=self.display)
+            self.pool.release_gray(temp)
 
-    def mask_shiny(self):
-        pygrip.desaturate(self.ir, dst=self.tmp16_1)
-        into_uint8(self.tmp16_1, dst=self.tmp8_1)
-        pygrip.blur(self.tmp8_1, pygrip.MEDIAN_BLUR, 1, dst=self.tmp8_2)
-        cv2.threshold(self.tmp8_2, 80, 0xff, cv2.THRESH_BINARY, dst=self.mask8)
-        # grr threshold operates on matrices of unsigned bytes
-        into_uint16_mask(self.mask8, dst=self.mask16)
+    def display_raw_ir(self):
+        if self.mode == DISP_RAW_IR:
+            temp = self.pool.get_gray()
+            into_uint8(self.ir, dst=temp)
+            cv2.cvtColor(temp, cv2.COLOR_GRAY2BGR, dst=self.display)
+            self.pool.release_gray(temp)
 
-    def filter_shiniest(self):
-        things = cv2.findContours(
-            self.mask8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        contours = things[1]
-        into_uint8(self.depth, dst=self.tmp8_1)
-        cv2.cvtColor(self.tmp8_1, cv2.COLOR_GRAY2BGR, dst=self.contour_img)
-        # show all contours in blue
-        cv2.drawContours(self.contour_img, contours, -1, (255, 0, 0), cv2.FILLED)
-        contours = [c for c in contours if self.filter(c)]
-        contours.sort(key=lambda c: cv2.contourArea(c))
-        cv2.drawContours(self.contour_img, contours, -1, (0, 255, 0))
-        self.mask16[:] = 0
-        self.mask8[:] = 0
-        cv2.drawContours(self.mask8, contours, -1, (0xff), cv2.FILLED)
-        cv2.drawContours(self.mask16, contours, -1, (0xffff), cv2.FILLED)
-        self.contours = contours
+    def display_ir_mask(self, mask):
+        if self.mode == DISP_IR_MASK1:
+            cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR, dst=self.display)
 
-    def filter(self, contour):
-        area = cv2.contourArea(contour)
-        perimeter = cv2.arcLength(contour, True)
-        if area < self.area_threshold:
-            return False
-        ratio = float(perimeter) / float(area)
-        if not (self.rat_min < ratio < self.rat_max):
-            return False
-        return True
+    def display_ir_mask2(self, mask):
+        if self.mode == DISP_IR_MASK2:
+            cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR, dst=self.display)
+            """
+            temp8 = self.pool.get_gray()
+            into_uint8(mask, dst=temp8)
+            cv2.cvtColor(temp8, cv2.COLOR_GRAY2BGR, dst=self.display)
+            self.pool.release_gray(temp8)
+            """
 
-    def idepth_stats(self):
-        # compute some interesting things given a matrix
-        # of "interesting" distances (noninteresting distances are 0)
-        # idepth is a 240 x 320 matrix of depth data
+    def display_ir_mask3(self, mask, rect):
+        if self.mode == DISP_IR_MASK3:
+            cv2.rectangle(self.display, 
+                (rect[0], rect[1]), 
+                (rect[0]+rect[2], rect[1]+rect[3]), 
+                (0, 0, 255), 1)
+            self.display[mask == 255, :] = 255
+            return self.display
+
+    def process_depths(self):
+        """
+        """
+        self.display_depth()
+        self.display_raw_ir()
+
+        if self.is_hg_position:
+            if self.mode == DISP_IR_MASK3:
+                self.display[:] = 0
+            self.hg_mask_shiny()
+            depth_to_xyz2(depth=self.depth, xyz=self.xyz)
+            self.hg_filter_shiniest()
+        else:
+            pass
+        """
+        self.zero_out_min_dists()
+        self.mask_shiny()
+        self.filter_shiniest()
+        cv2.bitwise_and(self.depth, self.mask16, dst=self.interesting_depths)
         depth_ixs = numpy.nonzero(self.interesting_depths)
         depth_to_xyz2(depth=self.depth, xyz=self.xyz)
         count = len(depth_ixs[0])
@@ -386,17 +213,18 @@ class Vision:
         self.targets = self.build_targets(rects)
 
         chosen_j = self.choose_target()
+        target_mask = self.pool.get_raw()
 
         for j, target in enumerate(self.targets):
             if j == chosen_j:
                 target.draw_color = (0, 255, 0)
             target.draw(self.contour_img)
-            self.target_mask[:] = 0
+            target_mask[:] = 0
             cv2.drawContours(
-                self.target_mask,
+                target_mask,
                 target.contours, -1, (0xffff), cv2.FILLED)
             cv2.bitwise_and(
-                self.depth, self.target_mask, dst=self.target_depths)
+                self.depth, target_mask, dst=self.target_depths)
             depth_ixs = numpy.nonzero(self.target_depths)
             count = len(depth_ixs[0])
             if count != 0:
@@ -424,8 +252,166 @@ class Vision:
                 self.sd.putNumber("target_theta_v", 1000)
 
 
+        self.pool.release_raw(target_mask)
         self.predict_impact(chosen_j)
         self.measure_target(chosen_j)
+        #self.set_display()
+        """
+
+    def zero_out_min_dists(self):
+        ixs = self.depth < self.min_dist
+        self.depth[ixs] = 0
+        self.ir[ixs] = 0
+
+    def hg_mask_shiny(self):
+        ir_temp = self.pool.get_raw()
+        numpy.copyto(ir_temp, self.ir)
+        ir_temp[:,:] = 0
+        # threshold raw ir data
+        ixs = self.ir > 200
+        ir_temp[ixs] = 0xffff
+        # ignore shiny things that are too close
+        ixs = self.depth < 1400 # mm
+        ir_temp[ixs] = 0
+        # and too far away
+        ixs = self.depth > 9000 # mm
+        ir_temp[ixs] = 0
+        into_uint8(ir_temp, dst=self.unblurred_mask8)
+        self.display_ir_mask(self.unblurred_mask8)
+        # blur the shiny, reduce the noise for contour finding
+        pygrip.blur(
+            self.unblurred_mask8, 
+            pygrip.MEDIAN_BLUR, 
+            radius=1, dst=self.mask8)
+
+        ixs = self.mask8 > 80 
+        self.mask8[ixs] = 255
+        ixs = self.mask8 < 80 
+        self.mask8[ixs] = 0
+        self.display_ir_mask2(self.mask8)
+        # grr threshold operates on matrices of unsigned bytes
+        into_uint16_mask(self.mask8, dst=self.mask16)
+
+        self.pool.release_raw(ir_temp)
+
+    def set_mode(self, mode_num):
+        self.mode = mode_num
+
+    def display_all_contours(self, all_contours):
+        if self.mode == DISP_ALL_CONTOURS:
+            # show all contours in blue
+            # show kept contours in green
+            temp_depth = self.pool.get_gray()
+            temp_color = self.pool.get_color()
+            #into_uint8(self.depth, dst=temp_depth)
+            #cv2.cvtColor(temp_depth, cv2.COLOR_GRAY2BGR, dst=temp_color)
+            temp_color[:] = 255
+            cv2.drawContours(
+                temp_color, all_contours, -1, (255, 0, 0), 1)
+            numpy.copyto(dst=self.display, src=temp_color)
+            self.pool.release_gray(temp_depth)
+            self.pool.release_color(temp_color)
+
+    def display_kept_contours(self, kept_contours):
+        if self.mode == DISP_KEPT_CONTOURS:
+            # show all contours in blue
+            # show kept contours in green
+            temp_depth = self.pool.get_gray()
+            temp_color = self.pool.get_color()
+            into_uint8(self.depth, dst=temp_depth)
+            cv2.cvtColor(temp_depth, cv2.COLOR_GRAY2BGR, dst=temp_color)
+            cv2.drawContours(
+                temp_color, kept_contours, -1, (0, 255, 0), 1)
+            numpy.copyto(dst=self.display, src=temp_color)
+            self.pool.release_gray(temp_depth)
+            self.pool.release_color(temp_color)
+
+    def hg_filter_shiniest(self):
+        # find contours of shiny things
+        # grr, findContours modifies its input image
+        contour_mask = self.pool.get_gray()
+        numpy.copyto(contour_mask, self.mask8)
+        things = cv2.findContours(
+            contour_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        all_contours = things[1]
+        self.display_all_contours(all_contours)
+        contours = [c for c in all_contours if self.hg_filter_contours(c)]
+        contours.sort(key=lambda c: cv2.contourArea(c))
+        self.display_kept_contours(contours)
+        self.mask16[:] = 0
+        self.mask8[:] = 0
+        cv2.drawContours(self.mask8, contours, -1, (0xff), cv2.FILLED)
+        cv2.drawContours(self.mask16, contours, -1, (0xffff), cv2.FILLED)
+        self.contours = contours
+        self.pool.release_gray(contour_mask)
+
+    def hg_filter_contours(self, contour):
+        """
+        is this a contour that is probably of the high goal?
+        find the real width and height of the contour 
+        (not adjusted for rotation)
+        is it too wide? -> no
+        is it too tall? -> no
+        is it too small? -> no
+        """
+        mask = self.pool.get_gray()
+        area = cv2.contourArea(contour)
+        if area < 10:
+            # smaller than 10 pixels? not actionable
+            return False
+        # isolate the mask enclosed by this contour
+        (x, y, w, h) = cv2.boundingRect(contour)
+        mask_part = mask[y:y+h, x:x+w]
+        mask_part[:] = 0
+        cv2.drawContours(mask, [contour], -1, (255,), cv2.FILLED)
+        mask8_part = self.unblurred_mask8[y:y+h, x:x+w]
+        mask_part &= mask8_part
+        # ignore pixels with outlier distances 
+        depth_part = self.depth[y:y+h, x:x+w]
+        mid_depth = numpy.median(depth_part)
+        mask_part[depth_part > mid_depth+400] = 0
+        mask_part[depth_part < mid_depth-400] = 0
+        display = self.display_ir_mask3(mask, (x,y,w,h))
+        # get xyz coords enclosed by this contour
+        xyz_part = self.xyz[:, y:y+h, x:x+w]
+        ixs = mask_part == 255
+        #print (' sh: ', xyz_part.shape)
+        x_part = xyz_part[0,:,:][ixs]
+        #print ("sh: ", x_part.shape)
+        if len(x_part) != 0:
+            # vision target is 381 mm x 101 mm or smaller
+            # so diagonal is 394 mm or smaller
+            # multiply by 1.12 for safety margin,
+            # so object must be less than 426 mm across
+            # .. and then experimental data suggests 600 is a better max
+            # and something that isn't 2 in wide probably isn't the target.
+            # probably.
+            width = abs(x_part.max() - x_part.min())
+            #print (' w: ', width, x_part.max(), x_part.min())
+            if width > 600 or width < 50:
+                return False
+
+        y_part = xyz_part[1, :, :][ixs]
+        if len(y_part) != 0:
+            # vision target is 381 mm x 101 mm or smaller
+            # we probably won't get it rotated more than 20 degrees
+            # and it should be at least an inch tall
+            height = abs(y_part.max() - y_part.min())
+            max_height = hg_max_apparent_height(20)
+            if height > max_height or height < 25:
+                return False
+
+
+        """
+        perimeter = cv2.arcLength(contour, True)
+        if area < self.area_threshold:
+            return False
+        ratio = float(perimeter) / float(area)
+        self.pool.release_gray(mask)
+        if not (self.rat_min < ratio < self.rat_max):
+            return False
+        """
+        return True
 
     def measure_target(self, chosen_j):
         from scipy.spatial.distance import pdist
@@ -615,65 +601,20 @@ class Vision:
             (self.center_x, self.center_y+10),
             color, 1)
 
-
-def into_uint8(img, dst):
-    # convert a matrix of unsigned short values to a matrix of unsigned byte
-    # values.
-    # mostly just useful for turning sensor output into viewable images
-    max = numpy.amax(img)
-    if max > 255:
-        dst[:] = img * 255. / max
-    else:
-        numpy.copyto(dst, img)
-    return dst
+    def on_mouse(self, ev, x, y, flags, userdata):
+        if ev == cv2.EVENT_LBUTTONDOWN:
+            print ("pixel (%s, %s): " % (x, y))
+            print (" depth: %s" % (self.depth[y,x]))
+            print (" ir: %s" % (self.ir[y,x]))
+            print (" mask: %s" % (self.mask8[y,x]))
+            print (" xyz: %s" % (self.xyz[:,y,x]))
 
 
-def into_uint16_mask(img, dst):
-    # input should be uint8
-    assert img.dtype == 'uint8'
-    assert dst.dtype == 'uint16'
-
-    # we want to be able to bitwise_and the result of this function against
-    # a matrix of unsigned shorts. without losing data.
-    dst[:] = 0
-    dst[numpy.nonzero(img)] = 0xffff
-    return dst
-
-
-def munge_floats_to_img(xyz, dst):
-    for i in range(0, 3):
-        max = xyz[i, :,:].max()
-        if max == 0:
-            dst[:,:,i] = 0
-        else:
-            dst[:,:,i] = xyz[i,:,:] * 255. / xyz[i, :,:].max()
-    return dst
-
-
-def rgbhex2bgr(hexcolor):
-    b = hexcolor & 0xff
-    g = (hexcolor >> 8) & 0xff
-    r = (hexcolor >> 16) & 0xff
-    return (b, g, r)
-
-
-def minAreaBox(contours):
-    rect2 = cv2.minAreaRect(contours)
-    box = cv2.boxPoints(rect2)
-    box = numpy.int0(box)
-    return box
-
-
-def flatten_contours(contours):
-    dim1 = sum([x.shape[0] for x in contours])
-    flattened_contours = numpy.empty(shape=(dim1, 1, 2), dtype='int32')
-    i = 0
-    for contour in contours:
-        cnt = contour.shape[0]
-        flattened_contours[i:i+cnt, :, :] = contour
-        i += cnt
-    return flattened_contours
-
-
-if __name__ == '__main__':
-    main()
+def hg_max_apparent_height(theta):
+    """
+    vision target is 381 mm x 101 mm or smaller
+    assume vision target rectangle will not appear rotated more than
+    theta degrees, then the max apparent height will be
+    """
+    theta_r = math.radians(theta)
+    return 101 * math.cos(theta_r) + 381 * math.sin(theta_r)
