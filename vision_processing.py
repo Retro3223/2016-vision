@@ -44,6 +44,7 @@ DISP_IR_MASK2 = 3
 DISP_ALL_CONTOURS = 4
 DISP_KEPT_CONTOURS = 5
 DISP_IR_MASK3 = 6
+DISP_EDGES = 7
 
 
 class Vision:
@@ -194,6 +195,7 @@ class Vision:
             self.hg_mask_shiny()
             depth_to_xyz2(depth=self.depth, xyz=self.xyz)
             self.hg_filter_shiniest()
+            self.hg_find_edges()
         else:
             pass
         """
@@ -272,6 +274,7 @@ class Vision:
         ir_temp[ixs] = 0xffff
         # ignore shiny things that are too close
         ixs = self.depth < 1400 # mm
+        ixs &= self.depth != 0
         ir_temp[ixs] = 0
         # and too far away
         ixs = self.depth > 9000 # mm
@@ -401,17 +404,170 @@ class Vision:
             if height > max_height or height < 25:
                 return False
 
-
-        """
-        perimeter = cv2.arcLength(contour, True)
-        if area < self.area_threshold:
-            return False
-        ratio = float(perimeter) / float(area)
         self.pool.release_gray(mask)
-        if not (self.rat_min < ratio < self.rat_max):
-            return False
-        """
         return True
+
+    def hg_median_dist(self, contour):
+        mask = self.pool.get_gray()
+        (x, y, w, h) = cv2.boundingRect(contour)
+        mask_part = mask[y:y+h, x:x+w]
+        mask_part[:] = 0
+        cv2.drawContours(mask, [contour], -1, (255,), cv2.FILLED)
+        mask8_part = self.unblurred_mask8[y:y+h, x:x+w]
+        mask_part &= mask8_part
+        # ignore pixels with outlier distances 
+        depth_part = self.depth[y:y+h, x:x+w]
+        mid_depth = numpy.median(depth_part)
+        self.pool.release_gray(mask)
+        return mid_depth
+
+    def hg_find_edges(self):
+        self.detect_edges()
+
+    def display_edges(self, edges):
+        if self.mode == DISP_EDGES:
+            temp = self.pool.get_gray()
+            into_uint8(self.depth, dst=temp)
+            cv2.cvtColor(temp, cv2.COLOR_GRAY2BGR, dst=self.display)
+            self.pool.release_gray(temp)
+            for contour in self.contours:
+                (x,y,w,h) = cv2.boundingRect(contour)
+                mid_depth = self.hg_median_dist(contour)
+                ixs = self.depth <= mid_depth + 200
+                ixs &= self.depth >= mid_depth - 200
+                self.display[ixs,0] = 97
+                self.display[ixs,1] = 206
+                self.display[ixs,2] = 202
+            for contour in self.contours:
+                (x,y,w,h) = cv2.boundingRect(contour)
+                box = minAreaBox(contour)
+                pt1 = tuple(box[0])
+                pt2 = tuple(box[1])
+                pt3 = tuple(box[2])
+                pt4 = tuple(box[3])
+                cv2.line(self.display, pt1, pt2, (0, 0, 255), 1)
+                cv2.line(self.display, pt2, pt3, (0, 0, 255), 1)
+                cv2.line(self.display, pt3, pt4, (0, 0, 255), 1)
+                cv2.line(self.display, pt1, pt4, (0, 0, 255), 1)
+                def x(pt):
+                    return pt[0]
+                redge1 = redge2 = None
+                ledge1 = ledge2 = None
+                if abs(x(pt1) - x(pt2)) < abs(x(pt2) - x(pt3)):
+                    cv2.circle(self.display, pt2, 2, (255, 255, 0), -1)
+                    cv2.circle(self.display, pt3, 2, (255, 255, 0), -1)
+
+                    redge1 = self.hg_find_right_edge(pt2, pt3)
+                    ledge1 = self.hg_find_left_edge(pt2, pt3)
+
+                    cv2.circle(self.display, pt1, 2, (0, 255, 255), -1)
+                    cv2.circle(self.display, pt4, 2, (0, 255, 255), -1)
+
+                    redge2 = self.hg_find_right_edge(pt1, pt4)
+                    ledge2 = self.hg_find_left_edge(pt1, pt4)
+                else:
+                    cv2.circle(self.display, pt1, 2, (255, 255, 0), -1)
+                    cv2.circle(self.display, pt2, 2, (255, 255, 0), -1)
+                    redge1 = self.hg_find_right_edge(pt1, pt2)
+                    ledge1 = self.hg_find_left_edge(pt1, pt2)
+                    cv2.circle(self.display, pt3, 2, (0, 255, 255), -1)
+                    cv2.circle(self.display, pt4, 2, (0, 255, 255), -1)
+                    redge2 = self.hg_find_right_edge(pt3, pt4)
+                    ledge2 = self.hg_find_left_edge(pt3, pt4)
+                if redge1 != None:
+                    cv2.circle(self.display, redge1, 2, (255, 0, 255), -1)
+                if redge2 != None:
+                    cv2.circle(self.display, redge2, 2, (255, 0, 255), -1)
+                if ledge1 != None:
+                    cv2.circle(self.display, ledge1, 2, (255, 0, 255), -1)
+                if ledge2 != None:
+                    cv2.circle(self.display, ledge2, 2, (255, 0, 255), -1)
+
+    def detect_edges(self):
+        depth_a = self.depth[:, 0:-1]
+        depth_b = self.depth[:, 1:]
+        depth_diff = numpy.absolute((depth_a - depth_b).astype('int16'))
+        idx = depth_diff < self.area_threshold * 10
+        depth_diff[idx] = 0
+        depth8 = self.pool.get_gray()
+        depth8[:, :] = 255
+        depth8[idx] = 0
+        #into_uint8(depth_diff, dst=depth8[:, 0:-1])
+        """
+        things = cv2.findContours(
+            depth8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        contours = things[1]
+        """
+        self.display_edges(depth8)
+        #cv2.drawContours(self.display, contours, -1, (244, 66, 241), cv2.FILLED)
+        self.pool.release_gray(depth8)
+
+    def hg_find_right_edge(self, pt1, pt2):
+        """
+        given horizontal segment of bounding box hg vision target,
+        find the edge of the pipe by walking that line until you see
+        a large depth delta 
+        pt1, pt2: (i, j), where i in range (0, 320), j in range (0, 240)
+        returns (i, j) of right edge along line segment.
+         or None, if none was found
+        """
+        if pt1[0] > pt2[0]:
+            temp = pt1
+            pt1 = pt2
+            pt2 = temp
+
+        start_pt = ((pt1[0]+pt2[0])//2, pt2[1])
+        last_depth = int(self.depth[start_pt[1], start_pt[0]])
+        for i in range(start_pt[0], min(pt2[0]+100, 320)):
+            depth = int(self.depth[pt2[1], i])
+            if depth == 0:
+                # hoping we won't see shadow on the right edge, so
+                # let's assume any shadow comes from something in
+                # front of target
+                return None
+            ddepth =  depth - last_depth
+            last_depth = depth
+            if ddepth < -100:
+                # we are not at edge, something is in front of target
+                # observed negative deltas of down to -46 in valid cases
+                return None
+            if ddepth > 200:
+                # we are at edge
+                return (i, pt2[1])
+        # .. and I just realized I wrote this assuming horizontal line segments,
+        # when that isn't necessarily the case. meh, works okay anyways
+
+    def hg_find_left_edge(self, pt1, pt2):
+        """
+        given horizontal segment of bounding box hg vision target,
+        find the edge of the pipe by walking that line until you see
+        a large depth delta 
+        pt1, pt2: (i, j), where i in range (0, 320), j in range (0, 240)
+        returns (i, j) of left edge along line segment.
+         or None, if none was found
+        """
+        if pt1[0] > pt2[0]:
+            temp = pt1
+            pt1 = pt2
+            pt2 = temp
+
+        start_pt = ((pt1[0]+pt2[0])//2, pt1[1])
+        last_depth = int(self.depth[start_pt[1], start_pt[0]])
+        for i in range(start_pt[0], max(pt1[0]-100, 0), -1):
+            depth = int(self.depth[pt1[1], i])
+            if depth == 0:
+                # left edges seems to be shadowy, so lets assume
+                # shadow actually is edge of target
+                return (i, pt1[1])
+            ddepth =  depth - last_depth
+            last_depth = depth
+            if ddepth < -100:
+                # we are not at edge, something is in front of target
+                # observed negative deltas of down to -46 in valid cases
+                return None
+            if ddepth > 200:
+                # we are at edge
+                return (i, pt1[1])
 
     def measure_target(self, chosen_j):
         from scipy.spatial.distance import pdist
