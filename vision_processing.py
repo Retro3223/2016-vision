@@ -174,14 +174,33 @@ class Vision:
             self.pool.release_gray(temp8)
             """
 
-    def display_ir_mask3(self, mask, rect):
+    def display_ir_mask3(self):
         if self.mode == DISP_IR_MASK3:
+            cv2.cvtColor(self.mask8, cv2.COLOR_GRAY2BGR, dst=self.display)
+            if len(self.contours) == 0: return
+            rect = cv2.boundingRect(self.contours[0])
             cv2.rectangle(self.display, 
                 (rect[0], rect[1]), 
                 (rect[0]+rect[2], rect[1]+rect[3]), 
                 (0, 0, 255), 1)
-            self.display[mask == 255, :] = 255
+            center_i = rect[0] + rect[2] // 2
+            center_j = rect[1] + rect[3] // 2
+            print ('center: ', center_i, center_j)
+            print (' c x: ', 160 - center_i)
+            print (' c x:: ', self.xyz[0, center_j, center_i])
             return self.display
+
+    def publish_xoffset(self):
+        if len(self.contours) == 0: 
+            self.sd.putBoolean("seesHighGoal", False)
+            return
+        rect = cv2.boundingRect(self.contours[0])
+        center_i = rect[0] + rect[2] // 2
+        center_j = rect[1] + rect[3] // 2
+        x = self.xyz[0, center_j, center_i]
+        x_pixel_offset = 160 - center_i
+        self.sd.putBoolean("seesHighGoal", True)
+        self.sd.putNumber("xOffsetHighGoal", x_pixel_offset)
     
     def hg_draw_hud(self):
         if self.mode == 2:
@@ -214,6 +233,7 @@ class Vision:
             self.hg_filter_shiniest()
             self.hg_find_edges()
             self.hg_draw_hud()
+            self.publish_xoffset()
         else:
             pass
         """
@@ -357,12 +377,13 @@ class Vision:
         all_contours = things[1]
         self.display_all_contours(all_contours)
         contours = [c for c in all_contours if self.hg_filter_contours(c)]
-        contours.sort(key=lambda c: cv2.contourArea(c))
+        contours.sort(key=lambda c: -cv2.contourArea(c))
         self.display_kept_contours(contours)
         self.mask16[:] = 0
         self.mask8[:] = 0
         cv2.drawContours(self.mask8, contours, -1, (0xff), cv2.FILLED)
         cv2.drawContours(self.mask16, contours, -1, (0xffff), cv2.FILLED)
+        display = self.display_ir_mask3()
         self.contours = contours
         self.pool.release_gray(contour_mask)
 
@@ -392,7 +413,6 @@ class Vision:
         mid_depth = numpy.median(depth_part)
         mask_part[depth_part > mid_depth+400] = 0
         mask_part[depth_part < mid_depth-400] = 0
-        display = self.display_ir_mask3(mask, (x,y,w,h))
         # get xyz coords enclosed by this contour
         xyz_part = self.xyz[:, y:y+h, x:x+w]
         ixs = mask_part == 255
