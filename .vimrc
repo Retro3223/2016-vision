@@ -1,0 +1,2 @@
+set ai
+syntax on
