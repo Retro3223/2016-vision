@@ -7,8 +7,7 @@ vertical_fov = 0.799344
 nx_cache = {}
 ny_cache = {}
 
-
-def depth_to_xyz(depth, xyz, shape=(240, 320)):
+def _prepare_xy_matrices(shape):
     if shape not in nx_cache:
         ix = numpy.indices(shape)
         xz_factor = math.tan(horizontal_fov / 2) * 2
@@ -20,11 +19,30 @@ def depth_to_xyz(depth, xyz, shape=(240, 320)):
     else:
         nx = nx_cache[shape]
         ny = ny_cache[shape]
+    return nx, ny
+
+
+def depth_to_xyz(depth, xyz, shape=(240, 320)):
+    nx, ny = _prepare_xy_matrices(shape)
     xyz[0, :] = nx * depth
     xyz[1, :] = ny * depth
     xyz[2, :] = depth
-
     return xyz
+
+
+def x_mm_to_pixel(x_mm, depth, shape=(240, 320)):
+    xz_factor = math.tan(horizontal_fov / 2) * 2
+    nx, _ = _prepare_xy_matrices(shape)
+    x_pixel = shape[1] * (x_mm / (xz_factor * depth) + 0.5)
+
+    return int(x_pixel)
+
+
+def x_pixel_to_mm(x_pixel, depth, shape=(240, 320)):
+    nx, _ = _prepare_xy_matrices(shape)
+    x_mm = nx[0, x_pixel] * depth
+
+    return x_mm
 
 
 def depth_to_xyz2(depth, xyz, shape=(240, 320)):

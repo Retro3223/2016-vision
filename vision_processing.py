@@ -3,33 +3,20 @@ import pygrip
 import cv2
 import numpy
 from networktables import NetworkTable
-from target import (
-    Target
-)
-from numpy_pool import (
-    NumpyPool
-)
+from numpy_pool import NumpyPool
+from best_fit_line import BestFitLine
 from utils import (
-    mm_to_in,
     into_uint8,
     into_uint16_mask,
-    munge_floats_to_img,
-    flatten_contours,
-    rgbhex2bgr,
     minAreaBox,
-)
-from angles import (
-    h_angle,
-    v_angle
-)
-from trajectory import (
-    on_trajectory
+    boxCenter,
 )
 from data_logger import DataLogger, Replayer
 from xyz_converter import (
-    depth_to_xyz2,
+    depth_to_xyz,
+    x_mm_to_pixel,
+    x_pixel_to_mm,
     distance,
-    midpoint,
 )
 try:
     import libpclproc
@@ -64,24 +51,12 @@ class Vision:
 
         self.is_hg_position = True
         self.hg_angle = 35.0 # degrees
+        self.hg_right_edge = None
+        self.hg_left_edge = None
+        self.hg_sees_target = False
         self.mode = 0
         self.area_threshold = 10
-        self.rat_min = 0.1
-        self.rat_max = 0.6
-        self.perimeter_threshold = 10
-        self.n_shiniest = 1
         self.contours = []
-        self.targets = []
-        self.max_target_width = 70
-        self.max_target_height = 70
-        self.max_target_count = 3
-        self.center_x = 160
-        self.center_y = 120
-        self.angle = 45
-        self.exit_velocity = 6200 # mm/s
-        self.targeting = False
-        self.avg_mm = -1
-        self.min_dist = 1000
         self.sd = NetworkTable.getTable("SmartDashboard")
         self.use_sensor = use_sensor
 
@@ -96,29 +71,6 @@ class Vision:
             import structure3223
             structure3223.destroy()
 
-    def set_display(self):
-        if self.mode == 0:
-            temp = self.pool.get_gray()
-            into_uint8(self.depth, dst=temp)
-            cv2.cvtColor(temp, cv2.COLOR_GRAY2BGR, dst=self.display)
-            self.pool.release_gray(temp)
-        elif self.mode == 1:
-            temp = self.pool.get_gray()
-            into_uint8(self.ir, dst=temp)
-            cv2.cvtColor(temp, cv2.COLOR_GRAY2BGR, dst=self.display)
-            self.pool.release_gray(temp)
-        elif self.mode == 2:
-            cv2.cvtColor(self.mask8, cv2.COLOR_GRAY2BGR, dst=self.display)
-        elif self.mode == 3:
-            temp = self.pool.get_gray()
-            into_uint8(self.interesting_depths, dst=temp)
-            cv2.cvtColor(temp, cv2.COLOR_GRAY2BGR, dst=self.display)
-            self.pool.release_gray(temp)
-        elif self.mode == 4:
-            munge_floats_to_img(self.xyz, dst=self.display)
-        else:
-            numpy.copyto(dst=self.display, src=self.contour_img)
-
     def setup_mode_listener(self):
         self.sd.addTableListener(self.value_changed)
 
@@ -126,10 +78,6 @@ class Vision:
         if key == "structureMode":
             if value in [0, 1, 2, 3, 4, 5]:
                 self.set_mode(value)
-        elif key == "shooter_pitch2":
-            self.angle = value
-        elif key == "exit_velocity":
-            self.exit_velocity = value
 
     def get_depths(self):
         import structure3223
@@ -185,12 +133,9 @@ class Vision:
                 (0, 0, 255), 1)
             center_i = rect[0] + rect[2] // 2
             center_j = rect[1] + rect[3] // 2
-            print ('center: ', center_i, center_j)
-            print (' c x: ', 160 - center_i)
-            print (' c x:: ', self.xyz[0, center_j, center_i])
             return self.display
 
-    def publish_xoffset(self):
+    def hg_publish(self):
         if len(self.contours) == 0: 
             self.sd.putBoolean("seesHighGoal", False)
             return
@@ -200,7 +145,9 @@ class Vision:
         x = self.xyz[0, center_j, center_i]
         x_pixel_offset = 160 - center_i
         self.sd.putBoolean("seesHighGoal", True)
-        self.sd.putNumber("xOffsetHighGoal", x_pixel_offset)
+        self.sd.putNumber("xOffsetHighGoal", self.hg_x_offset_mm)
+        self.sd.putNumber("zOffsetHighGoal", self.hg_z_offset_mm)
+        self.sd.putNumber("thetaHighGoal", self.hg_theta)
     
     def hg_draw_hud(self):
         if self.mode == 2:
@@ -222,7 +169,7 @@ class Vision:
            if abs(z_goal) > 3690 : return 
            else: j = 240 - int((z_goal * 8 // 123))
            cv2.circle(self.display,(i,j),17,(0,255,123),1)
-           print(b,x_goal,z_goal,i,j)
+           #print(b,x_goal,z_goal,i,j)
           #cv2.circle(self.display,b,17,(0,0,255),1)
            
     def process_depths(self):
@@ -235,79 +182,14 @@ class Vision:
             if self.mode == DISP_IR_MASK3:
                 self.display[:] = 0
             self.hg_mask_shiny()
-            depth_to_xyz2(depth=self.depth, xyz=self.xyz)
+            depth_to_xyz(depth=self.depth, xyz=self.xyz)
             self.hg_filter_shiniest()
             self.hg_find_edges()
+            self.hg_make_target()
             self.hg_draw_hud()
-            self.publish_xoffset()
+            self.hg_publish()
         else:
             pass
-        """
-        self.zero_out_min_dists()
-        self.mask_shiny()
-        self.filter_shiniest()
-        cv2.bitwise_and(self.depth, self.mask16, dst=self.interesting_depths)
-        depth_ixs = numpy.nonzero(self.interesting_depths)
-        depth_to_xyz2(depth=self.depth, xyz=self.xyz)
-        count = len(depth_ixs[0])
-        if count != 0:
-            sum = numpy.sum(self.interesting_depths[depth_ixs])
-            self.avg_mm = sum / count
-        else:
-            avg_mm = -1
-        rects = [(cv2.boundingRect(c), c) for c in self.contours]
-        self.targets = self.build_targets(rects)
-
-        chosen_j = self.choose_target()
-        target_mask = self.pool.get_raw()
-
-        for j, target in enumerate(self.targets):
-            if j == chosen_j:
-                target.draw_color = (0, 255, 0)
-            target.draw(self.contour_img)
-            target_mask[:] = 0
-            cv2.drawContours(
-                target_mask,
-                target.contours, -1, (0xffff), cv2.FILLED)
-            cv2.bitwise_and(
-                self.depth, target_mask, dst=self.target_depths)
-            depth_ixs = numpy.nonzero(self.target_depths)
-            count = len(depth_ixs[0])
-            if count != 0:
-                sum = numpy.sum(self.target_depths[depth_ixs])
-                target.avg_mm = sum / count
-                target.theta = h_angle(target.center_x, CX=self.center_x)
-                target.theta_v = v_angle(target.center_y, CY=self.center_y)
-
-            if j == chosen_j:
-                self.sd.putNumber("target_dist", target.avg_mm)
-                self.sd.putNumber("target_theta", target.theta)
-                self.sd.putNumber("target_theta_v", target.theta_v)
-                cv2.putText(self.contour_img,
-                    ("d= %.2f in" % target.avg_in), (10, 40),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255))
-                cv2.putText(self.contour_img,
-                    ("theta= %.2f" % target.theta), (10, 60),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255))
-                cv2.putText(self.contour_img,
-                    ("thetav= %.2f" % target.theta_v), (10, 80),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255))
-            else:
-                self.sd.putNumber("target_dist", -1)
-                self.sd.putNumber("target_theta", 1000)
-                self.sd.putNumber("target_theta_v", 1000)
-
-
-        self.pool.release_raw(target_mask)
-        self.predict_impact(chosen_j)
-        self.measure_target(chosen_j)
-        #self.set_display()
-        """
-
-    def zero_out_min_dists(self):
-        ixs = self.depth < self.min_dist
-        self.depth[ixs] = 0
-        self.ir[ixs] = 0
 
     def hg_mask_shiny(self):
         ir_temp = self.pool.get_raw()
@@ -350,8 +232,6 @@ class Vision:
             # show kept contours in green
             temp_depth = self.pool.get_gray()
             temp_color = self.pool.get_color()
-            #into_uint8(self.depth, dst=temp_depth)
-            #cv2.cvtColor(temp_depth, cv2.COLOR_GRAY2BGR, dst=temp_color)
             temp_color[:] = 255
             cv2.drawContours(
                 temp_color, all_contours, -1, (255, 0, 0), 1)
@@ -384,6 +264,16 @@ class Vision:
         self.display_all_contours(all_contours)
         contours = [c for c in all_contours if self.hg_filter_contours(c)]
         contours.sort(key=lambda c: -cv2.contourArea(c))
+
+        def get_center_xyz(c):
+            box = minAreaBox(c)
+            center_pixel = boxCenter(box)
+            xyz = self.xyz[:, center_pixel[1], center_pixel[0]]
+            return xyz
+
+        if len(contours) > 1:
+            center_xyz0 = get_center_xyz(contours[0])
+            contours = [c for c in contours if distance(get_center_xyz(c), center_xyz0) < 700]
         self.display_kept_contours(contours)
         self.mask16[:] = 0
         self.mask8[:] = 0
@@ -433,8 +323,8 @@ class Vision:
             # .. and then experimental data suggests 600 is a better max
             # and something that isn't 2 in wide probably isn't the target.
             # probably.
+            # bugger, I was using the wrong xyz converter. need to revisit!
             width = abs(x_part.max() - x_part.min())
-            #print (' w: ', width, x_part.max(), x_part.min())
             if width > 600 or width < 50:
                 return False
 
@@ -459,75 +349,66 @@ class Vision:
         cv2.drawContours(mask, [contour], -1, (255,), cv2.FILLED)
         mask8_part = self.unblurred_mask8[y:y+h, x:x+w]
         mask_part &= mask8_part
-        # ignore pixels with outlier distances 
         depth_part = self.depth[y:y+h, x:x+w]
-        mid_depth = numpy.median(depth_part)
+        mask_part[depth_part == 0] = 0
+        mid_depth = numpy.median(depth_part[mask_part == 255])
         self.pool.release_gray(mask)
         return mid_depth
 
-    def hg_find_edges(self):
-        self.detect_edges()
-
-    def display_edges(self, edges):
+    def display_edges(self, edges, mid_points):
         if self.mode == DISP_EDGES:
             temp = self.pool.get_gray()
             into_uint8(self.depth, dst=temp)
             cv2.cvtColor(temp, cv2.COLOR_GRAY2BGR, dst=self.display)
-            self.pool.release_gray(temp)
+            temp[:] = 0
             for contour in self.contours:
-                (x,y,w,h) = cv2.boundingRect(contour)
                 mid_depth = self.hg_median_dist(contour)
+                # ignore pixels with outlier distances 
                 ixs = self.depth <= mid_depth + 200
                 ixs &= self.depth >= mid_depth - 200
-                self.display[ixs,0] = 97
-                self.display[ixs,1] = 206
-                self.display[ixs,2] = 202
+                temp[ixs] = 155
+            if len(self.contours) != 0:
+                c = self.contours[0]
+                (x,y,w,h) = cv2.boundingRect(c)
+                i = x+w//2 
+                j = y+h//2
+                if self.depth[j, i] != 0:
+                    cv2.floodFill(temp, None, (i, j), 255, 1, 1)
+                    ixs = temp == 255
+                    self.display[ixs,:] = [97,206,202]
+            self.pool.release_gray(temp)
             for contour in self.contours:
-                (x,y,w,h) = cv2.boundingRect(contour)
                 box = minAreaBox(contour)
-                pt1 = tuple(box[0])
-                pt2 = tuple(box[1])
-                pt3 = tuple(box[2])
-                pt4 = tuple(box[3])
-                cv2.line(self.display, pt1, pt2, (0, 0, 255), 1)
-                cv2.line(self.display, pt2, pt3, (0, 0, 255), 1)
-                cv2.line(self.display, pt3, pt4, (0, 0, 255), 1)
-                cv2.line(self.display, pt1, pt4, (0, 0, 255), 1)
-                def x(pt):
-                    return pt[0]
-                redge1 = redge2 = None
-                ledge1 = ledge2 = None
-                if abs(x(pt1) - x(pt2)) < abs(x(pt2) - x(pt3)):
-                    cv2.circle(self.display, pt2, 2, (255, 255, 0), -1)
-                    cv2.circle(self.display, pt3, 2, (255, 255, 0), -1)
+                self.draw_box(self.display, box)
+            for edge in edges:
+                cv2.circle(self.display, edge, 2, (255, 0, 255), -1)
+            for pt in mid_points:
+                cv2.circle(self.display, pt, 2, (255, 255, 255), -1)
 
-                    redge1 = self.hg_find_right_edge(pt2, pt3)
-                    ledge1 = self.hg_find_left_edge(pt2, pt3)
+            def draw_edge(edge: BestFitLine):
+                if edge is not None: 
+                    t0 = edge.t_from_y(0)
+                    x0 = edge.x_from_t(t0)
+                    tn = edge.t_from_y(239)
+                    xn = edge.x_from_t(tn)
+                    pt1 = (int(x0), 0)
+                    pt2 = (int(xn), 239)
+                    cv2.line(self.display, pt1, pt2, (255, 0, 255), 1)
+            
+            draw_edge(self.hg_left_edge)
+            draw_edge(self.hg_right_edge)
 
-                    cv2.circle(self.display, pt1, 2, (0, 255, 255), -1)
-                    cv2.circle(self.display, pt4, 2, (0, 255, 255), -1)
+    def draw_box(self, img, box):
+        pt1 = (box[0])
+        pt2 = (box[1])
+        pt3 = (box[2])
+        pt4 = (box[3])
+        cv2.line(img, pt1, pt2, (0, 0, 255), 1)
+        cv2.line(img, pt2, pt3, (0, 0, 255), 1)
+        cv2.line(img, pt3, pt4, (0, 0, 255), 1)
+        cv2.line(img, pt1, pt4, (0, 0, 255), 1)
 
-                    redge2 = self.hg_find_right_edge(pt1, pt4)
-                    ledge2 = self.hg_find_left_edge(pt1, pt4)
-                else:
-                    cv2.circle(self.display, pt1, 2, (255, 255, 0), -1)
-                    cv2.circle(self.display, pt2, 2, (255, 255, 0), -1)
-                    redge1 = self.hg_find_right_edge(pt1, pt2)
-                    ledge1 = self.hg_find_left_edge(pt1, pt2)
-                    cv2.circle(self.display, pt3, 2, (0, 255, 255), -1)
-                    cv2.circle(self.display, pt4, 2, (0, 255, 255), -1)
-                    redge2 = self.hg_find_right_edge(pt3, pt4)
-                    ledge2 = self.hg_find_left_edge(pt3, pt4)
-                if redge1 != None:
-                    cv2.circle(self.display, redge1, 2, (255, 0, 255), -1)
-                if redge2 != None:
-                    cv2.circle(self.display, redge2, 2, (255, 0, 255), -1)
-                if ledge1 != None:
-                    cv2.circle(self.display, ledge1, 2, (255, 0, 255), -1)
-                if ledge2 != None:
-                    cv2.circle(self.display, ledge2, 2, (255, 0, 255), -1)
-
-    def detect_edges(self):
+    def hg_find_edges(self):
         depth_a = self.depth[:, 0:-1]
         depth_b = self.depth[:, 1:]
         depth_diff = numpy.absolute((depth_a - depth_b).astype('int16'))
@@ -536,14 +417,47 @@ class Vision:
         depth8 = self.pool.get_gray()
         depth8[:, :] = 255
         depth8[idx] = 0
-        #into_uint8(depth_diff, dst=depth8[:, 0:-1])
-        """
-        things = cv2.findContours(
-            depth8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        contours = things[1]
-        """
-        self.display_edges(depth8)
-        #cv2.drawContours(self.display, contours, -1, (244, 66, 241), cv2.FILLED)
+        right_edges = []
+        left_edges = []
+        mid_points = []
+        def pixel_x(pt):
+            return pt[0]
+
+        for contour in self.contours:
+            box = minAreaBox(contour)
+            mid_x, mid_y = boxCenter(box)
+            mid_points.append((mid_x, mid_y))
+            # box[i] is a seq (i, j) where i is 320 dir, j is 240
+            pts1 = (box[0], box[1])
+            pts2 = (box[2], box[3])
+            dx1 = abs(pixel_x(box[0]) - pixel_x(box[1]))
+            dx2 = abs(pixel_x(box[1]) - pixel_x(box[2]))
+            # assume bounding box is rectangle with longer sides horizontal
+            # pts1 and pts2 should be the horizontal sides
+            if dx1 < dx2:
+                pts1 = (box[0], box[3])
+                pts2 = (box[2], box[1])
+
+            redges1 = [self.hg_find_right_edge(*pt) for pt in [pts1, pts2]]
+            right_edges.extend([x for x in redges1 if x is not None])
+            ledges1 = [self.hg_find_left_edge(*pt) for pt in [pts1, pts2]]
+            left_edges.extend([x for x in ledges1 if x is not None])
+        all_edges = []
+        all_edges.extend(right_edges)
+        all_edges.extend(left_edges)
+        self.hg_right_edge = None
+        self.hg_left_edge = None
+        if len(right_edges) > 1:
+            self.hg_right_edge = BestFitLine(right_edges)
+            if abs(self.hg_right_edge.xy_slope()) < 2.0:
+                self.hg_right_edge = None
+        
+        if len(left_edges) > 1:
+            self.hg_left_edge = BestFitLine(left_edges)
+            if abs(self.hg_left_edge.xy_slope()) < 2.0:
+                self.hg_left_edge = None
+        
+        self.display_edges(all_edges, mid_points)
         self.pool.release_gray(depth8)
 
     def hg_find_right_edge(self, pt1, pt2):
@@ -613,193 +527,58 @@ class Vision:
                 # we are at edge
                 return (i, pt1[1])
 
-    def measure_target(self, chosen_j):
-        from scipy.spatial.distance import pdist
-        from scipy.interpolate import interp1d
-        if chosen_j is None:
+    def hg_make_target(self):
+        edge_adjust = (
+            (self.hg_right_edge is not None) ^ 
+            (self.hg_left_edge is not None)
+        )
+
+        if len(self.contours) == 0:
+            self.hg_sees_target = False
             return
-        target = self.targets[chosen_j]
-        flattened_contours = flatten_contours(target.contours)
-        color = rgbhex2bgr(0xf9c308)
-        box = minAreaBox(flattened_contours)
-        pt1 = midpoint(box[0], box[1])
-        pt2 = midpoint(box[2], box[3])
 
-        things1 = self.measure_target_width_on_segment(pt1, pt2)
-        if things1 is not None:
-            self.display_measurement(things1)
+        self.hg_sees_target = True
+        contour = self.contours[0]
+        box = minAreaBox(contour)
+        (cx_pixel, cy_pixel) = boxCenter(box)
+        dist_mm = self.hg_median_dist(contour)
+        # todo: deal with sensor incline
+        self.hg_z_offset_mm = dist_mm
+        self.hg_x_offset_mm = -self.xyz[0, cy_pixel, cx_pixel]
+        if self.hg_x_offset_mm == 0.0:
+            self.hg_x_offset_mm = -x_pixel_to_mm(cx_pixel, dist_mm)
 
-        pt3 = midpoint(box[0], box[3])
-        pt4 = midpoint(box[1], box[2])
+        if edge_adjust and self.hg_left_edge is not None:
+            t = self.hg_left_edge.t_from_y(cy_pixel)
+            x = int(self.hg_left_edge.x_from_t(t))
+            while abs(self.depth[cy_pixel, x] - dist_mm) > 200 and x != cx_pixel:
+                x += 1
 
-        things2 = self.measure_target_width_on_segment(pt3, pt4)
-        if things2 is not None:
-            self.display_measurement(things2)
+            x_offset_edge = self.xyz[0, cy_pixel, x]
+            # todo: be less lazy and don't assume the edge's slope is parallel
+            # with pixel y axis
+            self.hg_x_offset_mm = -x_offset_edge - 170
+        elif edge_adjust and self.hg_right_edge is not None:
+            t = self.hg_right_edge.t_from_y(cy_pixel)
+            x = int(self.hg_right_edge.x_from_t(t))
+            while abs(self.depth[cy_pixel, x] - dist_mm) > 200 and x != cx_pixel:
+                x -= 1
 
-    def measure_target_width_on_segment(self, pt1, pt2):
-        """
-        Given the line segment L defined by 2d points pt1 and pt2 from a camera 
-        frame, find the points pt3 and pt4 the nearest points to pt1 and pt2 
-        on L that are masked according to self.mask8. Then calculate the 
-        distance D between 3d points pt5 and pt6 in self.xyz which 
-        correspond to pt3 and pt4.
-        return pt3, pt4, D, fx, fy,
-            where 
-                pt3 = (x, y)
-                pt4 = (x, y)
-                fx is the function f(distance from pt3 on L) = x
-                fy is the function f(distance from pt3 on L) = y
-        If anything goes wrong, return None
-        """
-        from scipy.interpolate import interp1d
+            x_offset_edge = self.xyz[0, cy_pixel, x]
+            self.hg_x_offset_mm = -x_offset_edge + 170
 
-        dist2d = distance(pt1, pt2)
-        interpx = interp1d([0, dist2d], [pt1[0], pt2[0]])
-        interpy = interp1d([0, dist2d], [pt1[1], pt2[1]])
-        t = numpy.linspace(0, int(dist2d), int(dist2d)+1)
-        xs = numpy.int0(interpx(t))
-        ys = numpy.int0(interpy(t))
-        ixs, = self.mask8[ys, xs].nonzero()
-        if len(ixs) >= 2:
-            x1 = xs[ixs[0]]
-            y1 = ys[ixs[0]]
-            x2 = xs[ixs[-1]]
-            y2 = ys[ixs[-1]]
-            xyz1 = self.xyz[:, y1, x1]
-            xyz2 = self.xyz[:, y2, x2]
-            dist3d = distance(xyz1, xyz2)
-            interpx2 = lambda d: (x2-x1)*d/dist2d + x1
-            interpy2 = lambda d: (y2-y1)*d/dist2d + y1
-            return (x1, y1), (x2, y2), dist3d, interpx2, interpy2
-
-    def display_measurement(self, stuff):
-        pt1, pt2, dist, fx, fy = stuff
-        dist2d = distance(pt1, pt2)
-        txt_x = int(fx(dist2d+20))
-        txt_y = int(fy(dist2d+20))
-        cv2.circle(self.contour_img, pt1, 2, rgbhex2bgr(0xf7ff1e), 
-                thickness=2)
-        cv2.circle(self.contour_img, pt2, 2, rgbhex2bgr(0xf7ff1e), 
-                thickness=2)
-        cv2.putText(self.contour_img,
-            ("%.2f in" % mm_to_in(dist)), (txt_x, txt_y),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.6, rgbhex2bgr(0xf7ff1e))
-
-    def predict_impact(self, chosen_j):
-        def get_angle(y_pixel):
-            return self.angle + v_angle(y_pixel, CY=self.center_y)
-
-        def calc_point(d, y_pixel):
-            mth = get_angle(y_pixel)
-            x = d * math.cos(math.radians(mth))
-            y = d * math.sin(math.radians(mth))
-            return x, y
-        
-        def plot_impact(i, d):
-            half_angle = math.degrees(math.atan(127. / d))
-            pixel_radius = (half_angle / (58. / 320.))
-            cv2.circle(self.contour_img, 
-                    (self.center_x, i), int(pixel_radius), 
-                    (0, 0, 255), thickness=1)
-
-        def get_untargeted_dist(i):
-            mzs = self.depth[i-5:i+5,self.center_x-5:self.center_x+5]
-            mzs = mzs.flatten()
-            mzs = mzs[mzs.nonzero()]
-            if len(mzs) != 0 and mzs.mean() != 0:
-                mz = mzs.mean()
-                return mz
-            return 0
-
-        self.targeting = False
-        if chosen_j is not None: 
-            da_target = self.targets[chosen_j]
-            if da_target.min_x <= self.center_x <= da_target.max_x and da_target.avg_mm != -1:
-                self.targeting = True
-                target_x, target_y = calc_point(
-                        da_target.avg_mm, da_target.center_y)
-
-        possible_i = []
-        if self.targeting:
-            for i in range(self.center_y, 239, 2):
-                mth = get_angle(i)
-                dist = target_x / math.cos(math.radians(mth))
-                x, y = calc_point(dist, i)
-                if on_trajectory(self.exit_velocity, self.angle, x, y):
-                    possible_i.append((i, dist))
+        # we /shouldn't/ have been able to get here if z offset = 0..
+        if self.hg_z_offset_mm == 0:
+            self.hg_theta = 0
         else:
-            for i in range(self.center_y, 239, 2):
-                mz = get_untargeted_dist(i)
-                if mz != 0:
-                    x, y = calc_point(mz, i)
-                    if on_trajectory(self.exit_velocity, self.angle, x, y):
-                        possible_i.append((i, mz))
-        if possible_i:
-            i, dist = possible_i[len(possible_i)//2]
-            plot_impact(i, dist)
+            self.hg_theta = math.atan(self.hg_x_offset_mm  / self.hg_z_offset_mm)
 
-        self.crosshair()
-
-    @property
-    def avg_ft(self):
-        if self.avg_mm == -1:
-            return -1
-        return avg_mm / 25.4 / 12
-
-    @property
-    def avg_in(self):
-        if self.avg_mm == -1:
-            return -1
-        return avg_mm / 25.4
-
-    def build_targets(self, rects):
-        targets = []
-        target = None
-        for rect, contour in rects:
-            (x, y, w, h) = rect
-            proposed_target = Target(x, x+w, y, y+h, [contour])
-            i = -1
-            for j, target in enumerate(targets):
-                merged_target = Target.merge(target, proposed_target)
-                if self.ok_target(merged_target):
-                    targets[j] = merged_target
-                    break
-            else:
-                if len(targets) < self.max_target_count:
-                    targets.append(proposed_target)
-        return targets
-
-    def ok_target(self, target):
-        return (target.max_x - target.min_x < self.max_target_width and
-                target.max_y - target.min_y < self.max_target_height)
-
-    def choose_target(self):
-        target_dists = []
-        for i, target in enumerate(self.targets):
-            dist = math.hypot(
-                (self.center_x - target.center_x),
-                (self.center_y - target.center_y))
-            target_dists.append((i, dist))
-
-        target_dists.sort(key=lambda x: x[1])
-        if len(target_dists) != 0:
-            return target_dists[0][0]
-
-    def crosshair(self, img=None):
-        if img is None:
-            img = self.contour_img
-        corner_thickness = 1
-        color = (0, 0, 255)
-        if self.targeting:
-            color = (255, 0, 255)
-        cv2.line(img,
-            (self.center_x-10, self.center_y),
-            (self.center_x+10, self.center_y),
-            color, corner_thickness)
-        cv2.line(img,
-            (self.center_x, self.center_y-10),
-            (self.center_x, self.center_y+10),
-            color, 1)
+        if self.mode == DISP_EDGES:
+            px = x_mm_to_pixel(-self.hg_x_offset_mm, dist_mm)
+            print (edge_adjust, cx_pixel, cy_pixel, self.hg_x_offset_mm)
+            print (self.hg_z_offset_mm)
+            print ("  ", px)
+            cv2.circle(self.display, (px, cy_pixel), 2, (0, 0, 255), 2)
 
     def on_mouse(self, ev, x, y, flags, userdata):
         if ev == cv2.EVENT_LBUTTONDOWN:
@@ -818,3 +597,5 @@ def hg_max_apparent_height(theta):
     """
     theta_r = math.radians(theta)
     return 101 * math.cos(theta_r) + 381 * math.sin(theta_r)
+
+

@@ -53,7 +53,13 @@ def minAreaBox(contours):
     rect2 = cv2.minAreaRect(contours)
     box = cv2.boxPoints(rect2)
     box = numpy.int0(box)
-    return box
+    return [(x, y) for [x,y] in box]
+
+
+def boxCenter(box):
+    mid_x = int(sum([b[0] for b in box])/len(box))
+    mid_y = int(sum([b[1] for b in box])/len(box))
+    return (mid_x, mid_y)
 
 
 def flatten_contours(contours):
@@ -65,3 +71,10 @@ def flatten_contours(contours):
         flattened_contours[i:i+cnt, :, :] = contour
         i += cnt
     return flattened_contours
+
+def least_squares(ts, xs):
+    tmean = ts.mean()
+    xmean = xs.mean()
+    b = ((ts - tmean) * (xs - xmean)).sum() / ((ts - tmean)**2).sum()
+    a = xmean - b * tmean
+    return (a, b)

@@ -1,7 +1,11 @@
 from unittest import TestCase
 import numpy
-from xyz_converter import depth_to_xyz
-from xyz_converter import depth_to_xyz2
+from xyz_converter import (
+    depth_to_xyz,
+    depth_to_xyz2,
+    x_mm_to_pixel,
+    x_pixel_to_mm,
+)
 
 class XYZTests(TestCase):
     def test_convert_to_xyz(self):
@@ -45,4 +49,31 @@ class XYZTests(TestCase):
         self.assertAlmostEqual(xyz[0, 0, 0], -798.3327, 4)
         self.assertAlmostEqual(xyz[1, 0, 0], 687.17926, 4)
         self.assertAlmostEqual(xyz[2, 0, 0], 1417.4645, 4)
+
+    def test_x_mm_to_pixel(self):
+        depths = numpy.empty(shape=(240, 320), dtype='uint16')
+        xyz = numpy.zeros(shape=(3, 240, 320), dtype='float32')
+        depths[:, :] = 1766
+        xyz = depth_to_xyz(depths, xyz)
+
+        x = xyz[0, 60, 50]
+        self.assertAlmostEqual(x, -683.80951, 4)
+        pixel_x = x_mm_to_pixel(x, 1766)
+        x = xyz[0, 60, 270]
+        self.assertAlmostEqual(x, 683.80951, 4)
+        pixel_x = x_mm_to_pixel(x, 1766)
+        assert pixel_x == 269 # eh, close enough
+
+    def test_x_mm_to_pixel(self):
+        depths = numpy.empty(shape=(240, 320), dtype='uint16')
+        xyz = numpy.zeros(shape=(3, 240, 320), dtype='float32')
+        depths[:, :] = 1766
+        xyz = depth_to_xyz(depths, xyz)
+
+        x_pixel = 50
+        x = x_pixel_to_mm(x_pixel, 1766)
+        self.assertAlmostEqual(x, -683.80951, 4)
+        x_pixel = 270
+        x = x_pixel_to_mm(x_pixel, 1766)
+        self.assertAlmostEqual(x, 683.80951, 4)
 

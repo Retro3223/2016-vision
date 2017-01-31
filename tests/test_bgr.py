@@ -1,4 +1,4 @@
-from vision_processing import rgbhex2bgr
+from utils import rgbhex2bgr
 from unittest import TestCase
 
 
