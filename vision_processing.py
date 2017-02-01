@@ -578,8 +578,8 @@ class Vision:
         else:
             self.hg_theta = math.atan(self.hg_x_offset_mm  / self.hg_z_offset_mm)
 
-        self.hg_x_offset_pixel = cx_pixel
-        self.hg_y_offset_pixel = cy_pixel
+        self.hg_x_offset_pixel = 160 - cx_pixel
+        self.hg_y_offset_pixel = 120 - cy_pixel
         if self.mode == DISP_EDGES:
             px = x_mm_to_pixel(-self.hg_x_offset_mm, dist_mm)
             print (edge_adjust, cx_pixel, cy_pixel, self.hg_x_offset_mm)
