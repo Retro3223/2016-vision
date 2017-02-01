@@ -54,6 +54,8 @@ class Vision:
         self.hg_right_edge = None
         self.hg_left_edge = None
         self.hg_sees_target = False
+        self.hg_x_offset_pixel = 100000
+        self.hg_y_offset_pixel = 100000
         self.mode = 0
         self.area_threshold = 10
         self.contours = []
@@ -145,7 +147,10 @@ class Vision:
         x = self.xyz[0, center_j, center_i]
         x_pixel_offset = 160 - center_i
         self.sd.putBoolean("seesHighGoal", True)
-        self.sd.putNumber("xOffsetHighGoal", self.hg_x_offset_mm)
+        #self.sd.putNumber("xOffsetHighGoal", self.hg_x_offset_mm)
+        self.sd.putNumber("xOffsetHighGoal", self.hg_x_offset_pixel)
+        #self.sd.putNumber("xPixelOffsetHighGoal", self.hg_x_offset_pixel)
+        self.sd.putNumber("yPixelOffsetHighGoal", self.hg_y_offset_pixel)
         self.sd.putNumber("zOffsetHighGoal", self.hg_z_offset_mm)
         self.sd.putNumber("thetaHighGoal", self.hg_theta)
     
@@ -573,6 +578,8 @@ class Vision:
         else:
             self.hg_theta = math.atan(self.hg_x_offset_mm  / self.hg_z_offset_mm)
 
+        self.hg_x_offset_pixel = cx_pixel
+        self.hg_y_offset_pixel = cy_pixel
         if self.mode == DISP_EDGES:
             px = x_mm_to_pixel(-self.hg_x_offset_mm, dist_mm)
             print (edge_adjust, cx_pixel, cy_pixel, self.hg_x_offset_mm)
