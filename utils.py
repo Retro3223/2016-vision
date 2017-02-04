@@ -75,6 +75,9 @@ def flatten_contours(contours):
 def least_squares(ts, xs):
     tmean = ts.mean()
     xmean = xs.mean()
+    tg = ((ts - tmean)**2).sum()
+    if tg == 0:
+        print ('denominator 0?! ', ts)
     b = ((ts - tmean) * (xs - xmean)).sum() / ((ts - tmean)**2).sum()
     a = xmean - b * tmean
     return (a, b)

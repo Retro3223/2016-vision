@@ -385,10 +385,10 @@ class Vision:
             for contour in self.contours:
                 box = minAreaBox(contour)
                 self.draw_box(self.display, box)
-            for edge in edges:
-                cv2.circle(self.display, edge, 2, (255, 0, 255), -1)
-            for pt in mid_points:
-                cv2.circle(self.display, pt, 2, (255, 255, 255), -1)
+            #for edge in edges:
+            #    cv2.circle(self.display, edge, 2, (255, 0, 255), -1)
+            #for pt in mid_points:
+            #    cv2.circle(self.display, pt, 2, (255, 255, 255), -1)
 
             def draw_edge(edge: BestFitLine):
                 if edge is not None: 
@@ -400,8 +400,8 @@ class Vision:
                     pt2 = (int(xn), 239)
                     cv2.line(self.display, pt1, pt2, (255, 0, 255), 1)
             
-            draw_edge(self.hg_left_edge)
-            draw_edge(self.hg_right_edge)
+            #draw_edge(self.hg_left_edge)
+            #draw_edge(self.hg_right_edge)
 
     def draw_box(self, img, box):
         pt1 = (box[0])
@@ -479,7 +479,7 @@ class Vision:
             pt1 = pt2
             pt2 = temp
 
-        start_pt = ((pt1[0]+pt2[0])//2, pt2[1])
+        start_pt = (min(239, (pt1[0]+pt2[0])//2), pt2[1])
         last_depth = int(self.depth[start_pt[1], start_pt[0]])
         for i in range(start_pt[0], min(pt2[0]+100, 320)):
             depth = int(self.depth[pt2[1], i])
@@ -514,7 +514,7 @@ class Vision:
             pt1 = pt2
             pt2 = temp
 
-        start_pt = ((pt1[0]+pt2[0])//2, pt1[1])
+        start_pt = (min(239, (pt1[0]+pt2[0])//2), pt1[1])
         last_depth = int(self.depth[start_pt[1], start_pt[0]])
         for i in range(start_pt[0], max(pt1[0]-100, 0), -1):
             depth = int(self.depth[pt1[1], i])
@@ -553,6 +553,7 @@ class Vision:
         if self.hg_x_offset_mm == 0.0:
             self.hg_x_offset_mm = -x_pixel_to_mm(cx_pixel, dist_mm)
 
+        edge_adjust = False #turned off for now, is buggy
         if edge_adjust and self.hg_left_edge is not None:
             t = self.hg_left_edge.t_from_y(cy_pixel)
             x = int(self.hg_left_edge.x_from_t(t))
@@ -578,13 +579,15 @@ class Vision:
         else:
             self.hg_theta = math.atan(self.hg_x_offset_mm  / self.hg_z_offset_mm)
 
+        print (cx_pixel)
         self.hg_x_offset_pixel = 160 - cx_pixel
         self.hg_y_offset_pixel = 120 - cy_pixel
         if self.mode == DISP_EDGES:
             px = x_mm_to_pixel(-self.hg_x_offset_mm, dist_mm)
-            print (edge_adjust, cx_pixel, cy_pixel, self.hg_x_offset_mm)
-            print (self.hg_z_offset_mm)
-            print ("  ", px)
+            print (cx_pixel, self.hg_x_offset_pixel)
+            #print (edge_adjust, cx_pixel, cy_pixel, self.hg_x_offset_mm)
+            #print (self.hg_z_offset_mm)
+            #print ("  ", px)
             cv2.circle(self.display, (px, cy_pixel), 2, (0, 0, 255), 2)
 
     def on_mouse(self, ev, x, y, flags, userdata):
