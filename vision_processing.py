@@ -168,14 +168,13 @@ class Vision:
            b = ((a[1]+a[1]+a[3])//2,(a[0]+a[0]+a[2])//2)
            x_goal = self.xyz[0,b[0],b[1]]
            z_goal = self.xyz[2,b[0],b[1]]
-           """X values requires a sign change and maybe slight calculation change"""
            if abs(x_goal) > 2460 : return 
-           else : i =int( 160 - (x_goal * 8 // 123))
+           else : i =int( 160 + (x_goal * 8 // 123))
            if abs(z_goal) > 3690 : return 
            else: j = 240 - int((z_goal * 8 // 123))
            cv2.circle(self.display,(i,j),17,(0,255,123),1)
            #print(b,x_goal,z_goal,i,j)
-          #cv2.circle(self.display,b,17,(0,0,255),1)
+           #cv2.circle(self.display,b,17,(0,0,255),1)
            
     def process_depths(self):
         """

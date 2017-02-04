@@ -14,7 +14,7 @@ def setup_options_parser():
     parser = argparse.ArgumentParser(description='read structure sensor data.')
     parser.add_argument(
         '--log-dir', dest='log_dir', metavar='LDIR',
-        default='/mnt/',
+        default='/opt/data',
         help='specify directory in which to log data')
     parser.add_argument(
         '--output-dir', metavar='ODIR',
@@ -36,7 +36,7 @@ NetworkTable.initialize()
 file_name = os.path.join(args.output_dir, "structure.jpg")
 tmp_name = os.path.join(args.output_dir, "structure.tmp.jpg")
 vision = Vision()
-vision.set_mode(5)
+vision.set_mode(7)
 vision.setup_mode_listener()
 
 logger = DataLogger(args.log_dir)
@@ -50,3 +50,4 @@ with vision:
         cv2.imwrite(tmp_name, vision.display)
         os.rename(tmp_name, file_name)
         logger.log_data(vision.depth, vision.ir)
+        #time.sleep(0.05)
