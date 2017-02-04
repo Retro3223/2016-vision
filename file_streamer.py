@@ -32,7 +32,7 @@ def setup_options_parser():
 parser = setup_options_parser()
 args = parser.parse_args()
 
-NetworkTable.setIPAddress(find_roborio())
+NetworkTable.setIPAddress("10.32.23.2")
 NetworkTable.setClientMode()
 NetworkTable.initialize()
 
