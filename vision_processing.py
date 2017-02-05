@@ -153,29 +153,43 @@ class Vision:
         self.sd.putNumber("yPixelOffsetHighGoal", self.hg_y_offset_pixel)
         self.sd.putNumber("zOffsetHighGoal", self.hg_z_offset_mm)
         self.sd.putNumber("thetaHighGoal", self.hg_theta)
-    
+ 
     def hg_draw_hud(self):
         if self.mode == 2:
+           # distance between robot and point of impact (mm)           
            z0 = 2000
-           cr = 8 / 123
+           # hud distance ratio (px/mm)
+           cr = 8.0 / 123
+           # distance between robot and point of impact (px)           
            z0 = int(z0 * cr)
+           # x offset between robot and point of impact (px)           
            x0 = 0
            center = (320//2,240//2)
-           cv2.circle(self.display,center,4,(0,255,0),1)
+           # draw point of impact
+           cv2.circle(self.display, center, 4, (0, 255, 0), 1)
            if len(self.contours) ==0 : return
            contour = self.contours[0]
            a = cv2.boundingRect(contour) 
-           b = ((a[1]+a[1]+a[3])//2,(a[0]+a[0]+a[2])//2)
-           x_goal = self.xyz[0,b[0],b[1]]
-           z_goal = self.xyz[2,b[0],b[1]]
-           if abs(x_goal) > 2460 : return 
-           else : i =int( 160 + (x_goal * 8 // 123))
-           if abs(z_goal) > 3690 : return 
-           else: j = 240 - int((z_goal * 8 // 123))
-           cv2.circle(self.display,(i,j),17,(0,255,123),1)
+           # xy plane center of target (px, px)
+           b = ((a[1] + a[1] + a[3]) // 2, (a[0] + a[0] + a[2]) // 2)
+           # xz plane center of target (mm, mm)
+           x_goal = self.xyz[0, b[0], b[1]]
+           z_goal = self.xyz[2, b[0], b[1]]
+           if abs(x_goal) > 2460 : 
+               return 
+           else: 
+               # xz plane center of target (px)
+               i = int(160 + (x_goal * cr))
+           if abs(z_goal) > 3690: 
+               return 
+           else: 
+               # xz plane center of target (px)
+               j = 240 - int((z_goal * cr))
+           cv2.circle(self.display, (i, j), 17, (0, 255, 123), 1)
+           #cv2.circle(self.display, (center[0], center[0] + 
            #print(b,x_goal,z_goal,i,j)
            #cv2.circle(self.display,b,17,(0,0,255),1)
-           
+
     def process_depths(self):
         """
         """
@@ -478,10 +492,12 @@ class Vision:
             pt1 = pt2
             pt2 = temp
 
-        start_pt = (min(239, (pt1[0]+pt2[0])//2), pt2[1])
+        # for some reason, we're getting pt[0] in range [1, 241]
+        j = min(pt2[1]-1, 239)
+        start_pt = ((pt1[0]+pt2[0])//2, j)
         last_depth = int(self.depth[start_pt[1], start_pt[0]])
         for i in range(start_pt[0], min(pt2[0]+100, 320)):
-            depth = int(self.depth[pt2[1], i])
+            depth = int(self.depth[j, i])
             if depth == 0:
                 # hoping we won't see shadow on the right edge, so
                 # let's assume any shadow comes from something in
@@ -495,7 +511,7 @@ class Vision:
                 return None
             if ddepth > 200:
                 # we are at edge
-                return (i, pt2[1])
+                return (i, j)
         # .. and I just realized I wrote this assuming horizontal line segments,
         # when that isn't necessarily the case. meh, works okay anyways
 
@@ -513,14 +529,16 @@ class Vision:
             pt1 = pt2
             pt2 = temp
 
-        start_pt = (min(239, (pt1[0]+pt2[0])//2), pt1[1])
+        # for some reason, we're getting pt[1] in range [1, 241], when it should be [0, 239]
+        j = min(pt1[1]-1, 239)
+        start_pt = ((pt1[0]+pt2[0])//2, j)
         last_depth = int(self.depth[start_pt[1], start_pt[0]])
         for i in range(start_pt[0], max(pt1[0]-100, 0), -1):
-            depth = int(self.depth[pt1[1], i])
+            depth = int(self.depth[j, i])
             if depth == 0:
                 # left edges seems to be shadowy, so lets assume
                 # shadow actually is edge of target
-                return (i, pt1[1])
+                return (i, j)
             ddepth =  depth - last_depth
             last_depth = depth
             if ddepth < -100:
@@ -529,7 +547,7 @@ class Vision:
                 return None
             if ddepth > 200:
                 # we are at edge
-                return (i, pt1[1])
+                return (i, j)
 
     def hg_make_target(self):
         edge_adjust = (
@@ -576,17 +594,13 @@ class Vision:
         if self.hg_z_offset_mm == 0:
             self.hg_theta = 0
         else:
-            self.hg_theta = math.atan(self.hg_x_offset_mm  / self.hg_z_offset_mm)
+            xz = self.hg_x_offset_mm  / self.hg_z_offset_mm
+            self.hg_theta = math.atan(xz)
 
-        print (cx_pixel)
         self.hg_x_offset_pixel = 160 - cx_pixel
         self.hg_y_offset_pixel = 120 - cy_pixel
         if self.mode == DISP_EDGES:
             px = x_mm_to_pixel(-self.hg_x_offset_mm, dist_mm)
-            print (cx_pixel, self.hg_x_offset_pixel)
-            #print (edge_adjust, cx_pixel, cy_pixel, self.hg_x_offset_mm)
-            #print (self.hg_z_offset_mm)
-            #print ("  ", px)
             cv2.circle(self.display, (px, cy_pixel), 2, (0, 0, 255), 2)
 
     def on_mouse(self, ev, x, y, flags, userdata):
