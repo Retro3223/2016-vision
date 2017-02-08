@@ -61,6 +61,8 @@ class Vision:
         self.gear_sees_target = False
         self.left_gear_target = None
         self.right_gear_target = None
+        self.gear_theta = 999
+        self.gear_psi = 999
 
         self.mode = 0
         self.area_threshold = 10
@@ -163,7 +165,7 @@ class Vision:
     def gear_publish(self):
         self.sd.putBoolean("seesHighGoal", False)
         if not self.gear_sees_target:
-            print ('no seeum targets')
+            #print ('no seeum targets')
             self.sd.putBoolean("seesLift", False)
             return
         self.sd.putBoolean("seesLift", True)
@@ -440,7 +442,7 @@ class Vision:
             self.gear_x_offset_mm = (lx + rx) / 2
             self.gear_z_offset_mm = (lz + rz) / 2
             if lx - rx != 0:
-                self.gear_psi = math.atan((lz - rz) / (lx - rx))
+                self.gear_psi = math.atan((rz - lz) / (lx - rx))
             else:
                 # leave psi at previous value?
                 pass
