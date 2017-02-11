@@ -49,7 +49,7 @@ class Vision:
         self.contour_img = pool.get_color()
         self.xyz = pool.get_xyz()
 
-        self.is_hg_position = True
+        self.is_hg_position = False
         self.hg_angle = 35.0 # degrees
         self.hg_right_edge = None
         self.hg_left_edge = None
@@ -57,7 +57,7 @@ class Vision:
         self.hg_x_offset_pixel = 100000
         self.hg_y_offset_pixel = 100000
 
-        self.is_gear_position = False
+        self.is_gear_position = True
         self.gear_sees_target = False
         self.left_gear_target = None
         self.right_gear_target = None
@@ -86,7 +86,7 @@ class Vision:
 
     def value_changed(self, table, key, value, is_new):
         if key == "structureMode":
-            if value in [0, 1, 2, 3, 4, 5]:
+            if value in [0, 1, 2, 3, 4, 5, 6, 7]:
                 self.set_mode(value)
 
     def get_depths(self):
@@ -232,8 +232,8 @@ class Vision:
             depth_to_xyz(depth=self.depth, xyz=self.xyz)
             self.gear_filter_shiniest()
             self.gear_make_target()
+            self.display_kept_targets()
             self.gear_publish()
-            pass
 
     def hg_mask_shiny(self):
         ir_temp = self.pool.get_raw()
@@ -423,6 +423,9 @@ class Vision:
     def gear_make_target(self):
         if len(self.contours) == 0:
             self.gear_sees_target = False
+            self.contours = []
+            self.left_gear_target = None
+            self.right_gear_target = None
             return
         self.gear_sees_target = True
         targets = []
@@ -469,7 +472,6 @@ class Vision:
         else:
             # leave theta at previous value?
             pass
-        self.display_kept_targets()
 
     def hg_filter_contours(self, contour):
         """
