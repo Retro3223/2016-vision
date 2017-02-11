@@ -49,7 +49,7 @@ class Vision:
         self.contour_img = pool.get_color()
         self.xyz = pool.get_xyz()
 
-        self.is_hg_position = False
+        self.is_hg_position = True
         self.hg_angle = 35.0 # degrees
         self.hg_right_edge = None
         self.hg_left_edge = None
@@ -57,7 +57,7 @@ class Vision:
         self.hg_x_offset_pixel = 100000
         self.hg_y_offset_pixel = 100000
 
-        self.is_gear_position = True
+        self.is_gear_position = False
         self.gear_sees_target = False
         self.left_gear_target = None
         self.right_gear_target = None
