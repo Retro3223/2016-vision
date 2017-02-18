@@ -88,6 +88,14 @@ class Vision:
         if key == "structureMode":
             if value in [0, 1, 2, 3, 4, 5, 6, 7]:
                 self.set_mode(value)
+        if key == "isHighGoalPosition":
+            self.is_hg_position = value
+            if self.is_hg_position:
+                self.is_gear_position = False
+        if key == "isGearPosition":
+            self.is_gear_position = value
+            if self.is_gear_position:
+                self.is_hg_position = False
 
     def get_depths(self):
         import structure3223
