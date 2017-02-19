@@ -22,6 +22,7 @@ def setup_options_parser():
 def main():
     # display detected goal and distance from it
     # in a live window
+    max_mode = 8
     parser = setup_options_parser()
     args = parser.parse_args()
     replaying = args.replay_dir is not None
@@ -31,7 +32,7 @@ def main():
         replayer = Replayer(args.replay_dir)
         mode = "stopped"
         cv2.namedWindow("View")
-        cv2.createTrackbar("mode", "View", 0, 7, lambda *args: None)
+        cv2.createTrackbar("mode", "View", 0, max_mode, lambda *args: None)
         cv2.createTrackbar("area_threshold", "View", 10, 500,
                         lambda *args: None)
         cv2.createTrackbar("frame", "View", 0, len(replayer.frame_names), lambda *args: None)
@@ -60,7 +61,7 @@ def main():
                 x = cv2.waitKey(wait_delay)
                 if x % 128 == 27:
                     break
-                elif ord('0') <= x <= ord('7'):
+                elif ord('0') <= x <= ord(str(max_mode)):
                     cv2.setTrackbarPos("mode", "View", x - ord('0'))
                 elif ord('`') == x:
                     cv2.setTrackbarPos("mode", "View", 0)
@@ -89,14 +90,14 @@ def main():
         if recording:
             logger.begin_logging()
         cv2.namedWindow("View")
-        cv2.createTrackbar("mode", "View", 0, 7, lambda *args: None)
+        cv2.createTrackbar("mode", "View", 0, max_mode, lambda *args: None)
         '''
         cv2.createTrackbar("area_threshold", "View", 10, 500,
                         lambda *args: None)
         '''
         cv2.createTrackbar("angle", "View", 0, 90,
                         lambda *args: None)
-        cv2.createTrackbar("velocity", "View", 1000, 10000,
+        cv2.createTrackbar("position", "View", 0, 1,
                         lambda *args: None)
         with Vision() as vision:
             cv2.setMouseCallback("View", vision.on_mouse, None)
@@ -104,6 +105,13 @@ def main():
                 vision.set_mode(cv2.getTrackbarPos("mode", "View"))
                 #vision.area_threshold = cv2.getTrackbarPos("area_threshold", "View")
                 vision.angle = cv2.getTrackbarPos("angle", "View")
+                position = cv2.getTrackbarPos("position", "View")
+                if position == 0:
+                    vision.is_hg_position = True
+                    vision.is_gear_position = False
+                else:
+                    vision.is_hg_position = False
+                    vision.is_gear_position = True
                 vision.get_depths()
                 vision.process_depths()
                 logger.log_data(vision.depth, vision.ir)
@@ -111,7 +119,7 @@ def main():
                 x = cv2.waitKey(50)
                 if x % 128 == 27:
                     break
-                elif ord('0') <= x <= ord('7'):
+                elif ord('0') <= x <= ord(str(max_mode)):
                     cv2.setTrackbarPos("mode", "View", x - ord('0'))
                 elif ord('`') == x:
                     cv2.setTrackbarPos("mode", "View", 0)

@@ -10,6 +10,7 @@ from utils import (
     into_uint16_mask,
     minAreaBox,
     boxCenter,
+    rgbhex2bgr,
 )
 from data_logger import DataLogger, Replayer
 from xyz_converter import (
@@ -32,6 +33,7 @@ DISP_ALL_CONTOURS = 4
 DISP_KEPT_CONTOURS = 5
 DISP_IR_MASK3 = 6
 DISP_EDGES = 7
+DISP_FINAL = 8
 
 
 class Vision:
@@ -100,7 +102,10 @@ class Vision:
     def get_depths(self):
         import structure3223
         structure3223.read_frame(depth=self.depth, ir=self.ir)
-        self.flip_inputs()
+        if self.is_gear_position:
+            self.flip_vertical()
+        else:
+            self.flip_inputs()
 
     def get_recorded_depths(self, replayer, i):
         results = replayer.load_frame(i)
@@ -111,6 +116,10 @@ class Vision:
     def flip_inputs(self):
         cv2.flip(self.depth, 1, dst=self.depth)
         cv2.flip(self.ir, 1, dst=self.ir)
+
+    def flip_vertical(self):
+        cv2.flip(self.depth, 0, dst=self.depth)
+        cv2.flip(self.ir, 0, dst=self.ir)
 
     def display_depth(self):
         if self.mode == DISP_DEPTH:
@@ -184,40 +193,52 @@ class Vision:
         #print (self.gear_x_offset_mm, self.gear_z_offset_mm, math.degrees(self.gear_theta), math.degrees(self.gear_psi))
  
     def hg_draw_hud(self):
-        if self.mode == 2:
-           # distance between robot and point of impact (mm)           
-           z0 = 2000
-           # hud distance ratio (px/mm)
-           cr = 8.0 / 123
-           # distance between robot and point of impact (px)           
-           z0 = int(z0 * cr)
-           # x offset between robot and point of impact (px)           
-           x0 = 0
-           center = (320//2,240//2)
-           # draw point of impact
-           cv2.circle(self.display, center, 4, (0, 255, 0), 1)
-           if len(self.contours) ==0 : return
-           contour = self.contours[0]
-           a = cv2.boundingRect(contour) 
-           # xy plane center of target (px, px)
-           b = ((a[1] + a[1] + a[3]) // 2, (a[0] + a[0] + a[2]) // 2)
-           # xz plane center of target (mm, mm)
-           x_goal = self.xyz[0, b[0], b[1]]
-           z_goal = self.xyz[2, b[0], b[1]]
-           if abs(x_goal) > 2460 : 
-               return 
-           else: 
-               # xz plane center of target (px)
-               i = int(160 + (x_goal * cr))
-           if abs(z_goal) > 3690: 
-               return 
-           else: 
-               # xz plane center of target (px)
-               j = 240 - int((z_goal * cr))
-           cv2.circle(self.display, (i, j), 17, (0, 255, 123), 1)
-           #cv2.circle(self.display, (center[0], center[0] + 
-           #print(b,x_goal,z_goal,i,j)
-           #cv2.circle(self.display,b,17,(0,0,255),1)
+        if self.mode == DISP_FINAL:
+            temp_depth = self.pool.get_gray()
+            temp_color = self.pool.get_color()
+            into_uint8(self.depth, dst=temp_depth)
+            cv2.cvtColor(temp_depth, cv2.COLOR_GRAY2BGR, dst=temp_color)
+            cv2.drawContours(
+                temp_color, self.contours, -1, (255, 0, 255), -1)
+            numpy.copyto(dst=self.display, src=temp_color)
+            # distance between robot and point of impact (mm)           
+            z0 = 2000
+            # hud distance ratio (px/mm)
+            cr = 8.0 / 123
+            # distance between robot and point of impact (px)           
+            z0 = int(z0 * cr)
+            # x offset between robot and point of impact (px)           
+            x0 = 0
+            center = (320//2,240//2)
+            if len(self.contours) ==0 : return
+            contour = self.contours[0]
+            a = cv2.boundingRect(contour) 
+            # xy plane center of target (px, px)
+            b = ((a[1] + a[1] + a[3]) // 2, (a[0] + a[0] + a[2]) // 2)
+            # xz plane center of target (mm, mm)
+            x_goal = self.xyz[0, b[0], b[1]]
+            z_goal = self.xyz[2, b[0], b[1]]
+            if abs(x_goal) > 2460 : 
+                return 
+            else: 
+                # xz plane center of target (px)
+                i = int(160 + (x_goal * cr))
+            if abs(z_goal) > 3690: 
+                return 
+            else: 
+                # xz plane center of target (px)
+                j = 240 - int((z_goal * cr))
+            cv2.circle(self.display, (i, j), 17, rgbhex2bgr(0x00ff00), 2)
+            #cv2.circle(self.display, (i, j), 16, rgbhex2bgr(0xffd726), 1)
+
+            # draw point of impact
+            cv2.circle(self.display, center, 4, ((0, 255, 0)), -1)
+            #cv2.circle(self.display, center, 4+1, rgbhex2bgr(0x0c7ea0), 2)
+            #cv2.circle(self.display, (center[0], center[0] + 
+            #print(b,x_goal,z_goal,i,j)
+            #cv2.circle(self.display,b,17,(0,0,255),1)
+            self.pool.release_gray(temp_depth)
+            self.pool.release_color(temp_color)
 
     def process_depths(self):
         """
@@ -339,7 +360,7 @@ class Vision:
             self.pool.release_color(temp_color)
 
     def display_kept_targets(self):
-        if self.mode == DISP_KEPT_CONTOURS:
+        if self.mode in [DISP_KEPT_CONTOURS, DISP_FINAL]:
             # show left target in green
             # show right target in red
             temp_depth = self.pool.get_gray()
