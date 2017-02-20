@@ -103,9 +103,9 @@ class Vision:
         import structure3223
         structure3223.read_frame(depth=self.depth, ir=self.ir)
         if self.is_gear_position:
-            self.flip_inputs()
-        else:
             self.flip_vertical()
+        else:
+            self.flip_inputs()
 
     def get_recorded_depths(self, replayer, i):
         results = replayer.load_frame(i)
