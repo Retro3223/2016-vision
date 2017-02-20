@@ -379,7 +379,7 @@ class Vision:
                     -1, (0, 0, 255), 1)
                 js.append(self.right_gear_target.j)
 
-            if len(js) != 0:
+            if len(js) != 0 and self.seesLift:
                 j = int(numpy.array(js).mean())
                 i = x_mm_to_pixel(-self.gear_x_offset_mm, self.gear_z_offset_mm)
                 cv2.circle(temp_color, (i, j), 2, (255, 0, 255), -1)
