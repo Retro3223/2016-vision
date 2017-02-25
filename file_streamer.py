@@ -9,6 +9,13 @@ from vision_processing import Vision
 from networktables import NetworkTable
 from data_logger import DataLogger
 
+def find_roborio():
+    possible_hosts = ["roborio-3223-frc.local","roborio-3223-frc","roborio-3223-frc.frc-robot.local","roborio-3223-frc.frc-robot"]
+    for host in possible_hosts:
+        response = os.system("ping -c 1 " + host)
+        if response == 0:
+            return host
+    return possible_hosts[0]
 
 def setup_options_parser():
     parser = argparse.ArgumentParser(description='read structure sensor data.')
@@ -20,16 +27,12 @@ def setup_options_parser():
         '--output-dir', metavar='ODIR',
         default='/opt/',
         help='specify directory in which to deposit structure.jpg')
-    parser.add_argument(
-        '--robot', metavar='IP', dest='robot',
-        default='roborio-3223-frc.local',
-        help='specify ip address of robot')
     return parser
 
 parser = setup_options_parser()
 args = parser.parse_args()
 
-NetworkTable.setIPAddress(args.robot)
+NetworkTable.setIPAddress(find_roborio())
 NetworkTable.setClientMode()
 NetworkTable.initialize()
 
