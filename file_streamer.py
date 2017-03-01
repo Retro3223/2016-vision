@@ -39,7 +39,7 @@ NetworkTable.initialize()
 file_name = os.path.join(args.output_dir, "structure.jpg")
 tmp_name = os.path.join(args.output_dir, "structure.tmp.jpg")
 vision = Vision()
-vision.set_mode(5)
+vision.set_mode(8)
 vision.setup_mode_listener()
 
 logger = DataLogger(args.log_dir)
