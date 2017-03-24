@@ -63,8 +63,8 @@ class Vision:
         self.gear_sees_target = False
         self.left_gear_target = None
         self.right_gear_target = None
-        self.gear_theta = 0
-        self.gear_psi = 0
+        self.gear_theta = 999
+        self.gear_psi = 999
 
         self.mode = 0
         self.area_threshold = 10
@@ -103,9 +103,9 @@ class Vision:
         import structure3223
         structure3223.read_frame(depth=self.depth, ir=self.ir)
         if self.is_gear_position:
-            self.flip_inputs()
-        else:
             self.flip_vertical()
+        else:
+            self.flip_inputs()
 
     def get_recorded_depths(self, replayer, i):
         results = replayer.load_frame(i)
@@ -379,14 +379,10 @@ class Vision:
                     -1, (0, 0, 255), 1)
                 js.append(self.right_gear_target.j)
 
-            if len(js) != 0:
-                if self.gear_sees_target:
-                    color = (255, 0, 255)
-                else:
-                    color = (255, 255, 255)
+            if len(js) != 0 and self.seesLift:
                 j = int(numpy.array(js).mean())
                 i = x_mm_to_pixel(-self.gear_x_offset_mm, self.gear_z_offset_mm)
-                cv2.circle(temp_color, (i, j), 2, color, -1)
+                cv2.circle(temp_color, (i, j), 2, (255, 0, 255), -1)
             numpy.copyto(dst=self.display, src=temp_color)
             self.pool.release_gray(temp_depth)
             self.pool.release_color(temp_color)
