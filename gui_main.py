@@ -35,6 +35,8 @@ def main():
         cv2.createTrackbar("mode", "View", 0, max_mode, lambda *args: None)
         cv2.createTrackbar("area_threshold", "View", 10, 500,
                         lambda *args: None)
+        cv2.createTrackbar("position", "View", 0, 1,
+                        lambda *args: None)
         cv2.createTrackbar("frame", "View", 0, len(replayer.frame_names), lambda *args: None)
         with Vision(use_sensor=False) as vision:
             cv2.setMouseCallback("View", vision.on_mouse, None)
@@ -48,6 +50,13 @@ def main():
                 vision.process_depths()
                 if mode != "stopped" and pclviewer is not None:
                     pclviewer.updateCloud(vision.xyz)
+                position = cv2.getTrackbarPos("position", "View")
+                if position == 0:
+                    vision.is_hg_position = True
+                    vision.is_gear_position = False
+                else:
+                    vision.is_hg_position = False
+                    vision.is_gear_position = True
 
 
                 cv2.imshow("View", vision.display)
