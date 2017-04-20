@@ -580,6 +580,9 @@ class Vision:
             return False
         # isolate the mask enclosed by this contour
         (x, y, w, h) = cv2.boundingRect(contour)
+        if y > 210:
+            # stinking bumper is reflecting ir
+            return False
         mask_part = mask[y:y+h, x:x+w]
         mask_part[:] = 0
         cv2.drawContours(mask, [contour], -1, (255,), cv2.FILLED)

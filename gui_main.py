@@ -19,6 +19,12 @@ def setup_options_parser():
         help='enable recording of data read from sensor')
     return parser
 
+def scale_image(img, factor):
+    if factor == 1:
+        return img
+    newsize = (img.shape[1]*factor, img.shape[0]*factor)
+    return cv2.resize(img, newsize)
+
 def main():
     # display detected goal and distance from it
     # in a live window
@@ -33,16 +39,21 @@ def main():
         mode = "stopped"
         cv2.namedWindow("View")
         cv2.createTrackbar("mode", "View", 0, max_mode, lambda *args: None)
-        cv2.createTrackbar("area_threshold", "View", 10, 500,
+        cv2.createTrackbar("image_scale", "View", 1, 10,
                         lambda *args: None)
         cv2.createTrackbar("position", "View", 0, 1,
                         lambda *args: None)
         cv2.createTrackbar("frame", "View", 0, len(replayer.frame_names), lambda *args: None)
+        cv2.setTrackbarPos("mode", "View", 8)
+        cv2.setTrackbarPos("position", "View", 1)
+        scale_factor = 1
         with Vision(use_sensor=False) as vision:
-            cv2.setMouseCallback("View", vision.on_mouse, None)
+            def on_mouse(ev, x, y, flags, userdata):
+                return vision.on_mouse(ev, x // scale_factor, y // scale_factor, flags, userdata)
+
+            cv2.setMouseCallback("View", on_mouse, None)
             while True:
                 vision.set_mode(cv2.getTrackbarPos("mode", "View"))
-                vision.area_threshold = cv2.getTrackbarPos("area_threshold", "View")
                 _frame_i = cv2.getTrackbarPos("frame", "View")
                 if 0 <= _frame_i < len(replayer.frame_names):
                     frame_i = _frame_i
@@ -59,7 +70,11 @@ def main():
                     vision.is_gear_position = True
 
 
-                cv2.imshow("View", vision.display)
+                scale_factor = cv2.getTrackbarPos("image_scale", "View")
+                if scale_factor == 0:
+                    scale_factor = 1
+                img_to_show = scale_image(vision.display, scale_factor)
+                cv2.imshow("View", img_to_show)
                 wait_delay = 50
                 if mode == "fw" and frame_i < len(replayer.frame_names) - 1:
                     cv2.setTrackbarPos("frame", "View", frame_i+1)
@@ -100,10 +115,6 @@ def main():
             logger.begin_logging()
         cv2.namedWindow("View")
         cv2.createTrackbar("mode", "View", 0, max_mode, lambda *args: None)
-        '''
-        cv2.createTrackbar("area_threshold", "View", 10, 500,
-                        lambda *args: None)
-        '''
         cv2.createTrackbar("angle", "View", 0, 90,
                         lambda *args: None)
         cv2.createTrackbar("position", "View", 0, 1,
@@ -112,7 +123,6 @@ def main():
             cv2.setMouseCallback("View", vision.on_mouse, None)
             while True:
                 vision.set_mode(cv2.getTrackbarPos("mode", "View"))
-                #vision.area_threshold = cv2.getTrackbarPos("area_threshold", "View")
                 vision.angle = cv2.getTrackbarPos("angle", "View")
                 position = cv2.getTrackbarPos("position", "View")
                 if position == 0:
