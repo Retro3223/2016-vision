@@ -102,7 +102,6 @@ class Vision:
     def get_depths(self):
         import structure3223
         structure3223.read_frame(depth=self.depth, ir=self.ir)
-        # bumper!!!!
         if self.is_gear_position:
             self.flip_vertical()
         else:
@@ -268,7 +267,7 @@ class Vision:
 
     def hg_mask_shiny(self):
         ir_temp = self.pool.get_raw()
-        numpy.copyto(ir_temp, self.ir)
+        numpy.copyto(dst=ir_temp, src=self.ir)
         ir_temp[:,:] = 0
         # threshold raw ir data
         ixs = self.ir > 200
@@ -300,18 +299,19 @@ class Vision:
 
     def gear_mask_shiny(self):
         ir_temp = self.pool.get_raw()
-        numpy.copyto(ir_temp, self.ir)
         ir_temp[:,:] = 0
         # threshold raw ir data
         ixs = self.ir > 300
         ir_temp[ixs] = 0xffff
         # ignore shiny things that are too close
         ixs = self.depth < 500 # mm
-        #ixs &= self.depth != 0
-        ir_temp[ixs] = 0
+        ixs &= self.depth != 0
+        #ir_temp[ixs] = 0
         # and too far away
         ixs = self.depth > 9000 # mm
         ir_temp[ixs] = 0
+        # bumper!!!
+        ir_temp[210:, :] = 0
         into_uint8(ir_temp, dst=self.unblurred_mask8)
         self.display_ir_mask(self.unblurred_mask8)
         # blur the shiny, reduce the noise for contour finding
@@ -334,8 +334,8 @@ class Vision:
     def set_mode(self, mode_num):
         self.mode = mode_num
 
-    def display_all_contours(self, all_contours):
-        if self.mode == DISP_ALL_CONTOURS:
+    def display_all_contours(self, all_contours, mode=DISP_ALL_CONTOURS):
+        if self.mode == mode:
             # show all contours in blue
             # show kept contours in green
             temp_depth = self.pool.get_gray()
@@ -362,7 +362,7 @@ class Vision:
             self.pool.release_color(temp_color)
 
     def display_kept_targets(self):
-        if self.mode in [DISP_KEPT_CONTOURS, DISP_FINAL]:
+        if self.mode in [DISP_FINAL]:
             # show left target in green
             # show right target in red
             temp_depth = self.pool.get_gray()
@@ -381,7 +381,7 @@ class Vision:
                     -1, (0, 0, 255), 1)
                 js.append(self.right_gear_target.j)
 
-            if len(js) != 0 and self.seesLift:
+            if len(js) != 0 and self.gear_sees_target:
                 j = int(numpy.array(js).mean())
                 i = x_mm_to_pixel(-self.gear_x_offset_mm, self.gear_z_offset_mm)
                 cv2.circle(temp_color, (i, j), 2, (255, 0, 255), -1)
@@ -393,7 +393,7 @@ class Vision:
         # find contours of shiny things
         # grr, findContours modifies its input image
         contour_mask = self.pool.get_gray()
-        numpy.copyto(contour_mask, self.mask8)
+        numpy.copyto(dst=contour_mask, src=self.mask8)
         things = cv2.findContours(
             contour_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         all_contours = things[1]
@@ -401,15 +401,9 @@ class Vision:
         contours = [c for c in all_contours if self.hg_filter_contours(c)]
         contours.sort(key=lambda c: -cv2.contourArea(c))
 
-        def get_center_xyz(c):
-            box = minAreaBox(c)
-            center_pixel = boxCenter(box)
-            xyz = self.xyz[:, center_pixel[1], center_pixel[0]]
-            return xyz
-
         if len(contours) > 1:
-            center_xyz0 = get_center_xyz(contours[0])
-            contours = [c for c in contours if distance(get_center_xyz(c), center_xyz0) < 700]
+            center_xyz0 = self.get_center_xyz(contours[0])
+            contours = [c for c in contours if distance(self.get_center_xyz(c), center_xyz0) < 700]
         self.display_kept_contours(contours)
         self.mask16[:] = 0
         self.mask8[:] = 0
@@ -423,7 +417,7 @@ class Vision:
         # find contours of shiny things
         # grr, findContours modifies its input image
         contour_mask = self.pool.get_gray()
-        numpy.copyto(contour_mask, self.mask8)
+        numpy.copyto(dst=contour_mask, src=self.mask8)
         things = cv2.findContours(
             contour_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         all_contours = things[1]
@@ -431,18 +425,15 @@ class Vision:
         contours = [c for c in all_contours if self.gear_filter_contours(c)]
         contours.sort(key=lambda c: -cv2.contourArea(c))
         # there are only 2 vision targets
-        contours = contours[:2]
+        #contours = contours[:2]
+        self.display_all_contours(contours, mode=5)
 
-        def get_center_xyz(c):
-            box = minAreaBox(c)
-            center_pixel = boxCenter(box)
-            xyz = self.xyz[:, center_pixel[1], center_pixel[0]]
-            return xyz
 
         if len(contours) > 1:
             # vision targets should be within 16 in of each other
-            center_xyz0 = get_center_xyz(contours[0])
-            contours = [c for c in contours if distance(get_center_xyz(c), center_xyz0) < 400]
+            #center_xyz0 = self.get_center_xyz(contours[0])
+            #contours = [c for c in contours if distance(self.get_center_xyz(c), center_xyz0) < 400]
+            pass
         self.mask16[:] = 0
         self.mask8[:] = 0
         cv2.drawContours(self.mask8, contours, -1, (0xff), cv2.FILLED)
@@ -458,51 +449,96 @@ class Vision:
             self.left_gear_target = None
             self.right_gear_target = None
             return
-        self.gear_sees_target = True
+        self.gear_sees_target = False
         targets = []
         for contour in self.contours:
             xztuple = self.get_xz_from_contour(contour)
             target = GearTarget(contour, *xztuple)
             targets.append(target)
 
+        targets = targets[:2]
         targets.sort(key=lambda t: t.i)
-        if len(targets) == 2:
-            self.left_gear_target = targets[0]
-            self.right_gear_target = targets[1]
-            lx = self.left_gear_target.x
-            rx = self.right_gear_target.x
-            lz = self.left_gear_target.z
-            rz = self.right_gear_target.z
-            self.gear_x_offset_mm = (lx + rx) / 2
-            self.gear_z_offset_mm = (lz + rz) / 2
-            if lx - rx != 0:
-                self.gear_psi = math.atan((rz - lz) / (lx - rx))
-            else:
-                # leave psi at previous value?
+        self.left_gear_target = None
+        self.right_gear_target = None
+        
+        self.display_all_contours([t.contour for t in targets[:2]], mode=6)
+        if len(targets) >= 2:
+            unk0 = targets[0].dimensions_unknown()
+            unk1 = targets[1].dimensions_unknown()
+            if unk0 and unk1:
                 pass
-        elif len(targets) == 1:
-            self.left_gear_target = None
-            self.right_gear_target = None
-            target = targets[0]
-            if target.i > 160:
-                self.left_gear_target = targets[0]
-                # fudge middle value
-                self.gear_x_offset_mm = self.left_gear_target.x - 100
-                self.gear_z_offset_mm = self.left_gear_target.z
-                # todo: calculate psi from slope of single target
+            elif unk0:
+                if targets[1].i > targets[0].i:
+                    self.assign_right_target([targets[1]])
+                else:
+                    self.assign_left_target([targets[1]])
+            elif unk1:
+                if targets[0].i > targets[1].i:
+                    self.assign_right_target([targets[0]])
+                else:
+                    self.assign_left_target([targets[0]])
             else:
-                self.right_gear_target = targets[0]
-                # fudge middle value
-                self.gear_x_offset_mm = self.right_gear_target.x + 100
-                self.gear_z_offset_mm = self.right_gear_target.z
-                # todo: calculate psi from slope of single target
+                dist = distance(self.get_center_xyz(targets[0].contour),
+                        self.get_center_xyz(targets[1].contour))
+                if dist > 400: 
+                    self.assign_edge_target(targets[0])
+                else:
+                    self.assign_both_targets(targets)
+        elif len(targets) == 1:
+            target = targets[0]
+            self.assign_edge_target(target)
 
-        if self.gear_z_offset_mm != 0.0:
+        if self.gear_sees_target and self.gear_z_offset_mm != 0.0:
             self.gear_theta = math.atan(
                     self.gear_x_offset_mm / self.gear_z_offset_mm)
         else:
             # leave theta at previous value?
             pass
+
+    def get_center_xyz(self, c):
+        box = minAreaBox(c)
+        center_pixel = boxCenter(box)
+        xyz = self.xyz[:, center_pixel[1], center_pixel[0]]
+        return xyz
+
+    def assign_edge_target(self, target):
+        unk = target.dimensions_unknown()
+        if target.i > 200 and not unk:
+            self.assign_left_target([target])
+        elif target.i < 120 and not unk:
+            self.assign_right_target([target])
+
+    def assign_both_targets(self, targets):
+        self.gear_sees_target = True
+        self.left_gear_target = targets[0]
+        self.right_gear_target = targets[1]
+        lx = self.left_gear_target.x
+        rx = self.right_gear_target.x
+        lz = self.left_gear_target.z
+        rz = self.right_gear_target.z
+        self.gear_x_offset_mm = (lx + rx) / 2
+        self.gear_z_offset_mm = (lz + rz) / 2
+        if lx - rx != 0:
+            self.gear_psi = math.atan((rz - lz) / (lx - rx))
+        else:
+            # leave psi at previous value?
+            pass
+
+    def assign_left_target(self, targets): 
+        self.gear_sees_target = True
+        self.left_gear_target = targets[0]
+        # fudge middle value
+        self.gear_x_offset_mm = self.left_gear_target.x - 100
+        self.gear_z_offset_mm = self.left_gear_target.z
+        # todo: calculate psi from slope of single target
+
+    def assign_right_target(self, targets):
+        self.gear_sees_target = True
+        self.right_gear_target = targets[0]
+        # fudge middle value
+        self.gear_x_offset_mm = self.right_gear_target.x + 100
+        self.gear_z_offset_mm = self.right_gear_target.z
+        # todo: calculate psi from slope of single target
 
     def hg_filter_contours(self, contour):
         """
@@ -575,12 +611,10 @@ class Vision:
         area = cv2.contourArea(contour)
         if area < 10:
             # smaller than 10 pixels? not actionable
+            #print("too small!")
             return False
         # isolate the mask enclosed by this contour
         (x, y, w, h) = cv2.boundingRect(contour)
-        if y > 210:
-            # stinking bumper is reflecting ir
-            return False
         mask_part = mask[y:y+h, x:x+w]
         mask_part[:] = 0
         cv2.drawContours(mask, [contour], -1, (255,), cv2.FILLED)
@@ -596,17 +630,24 @@ class Vision:
         ixs = mask_part == 255
         #print (' sh: ', xyz_part.shape)
         x_part = xyz_part[0,:,:][ixs]
+        # don't use zeroed out depth data for dimension based decisions
+        ixs2 = x_part != 0.0
+        x_part = x_part[ixs2]
         #print ("sh: ", x_part.shape)
         if len(x_part) != 0:
             # vision target is 50 mm x 127 mm or smaller
             width = abs(x_part.max() - x_part.min())
-            if width > 100 or width < 20:
+            if width > 100 or width < 5:
                 return False
 
         y_part = xyz_part[1, :, :][ixs]
+        # don't use zeroed out depth data for dimension based decisions
+        ixs2 = y_part != 0.0
+        y_part = y_part[ixs2]
         if len(y_part) != 0:
             height = abs(y_part.max() - y_part.min())
-            if height > 200 or height < 75:
+            if height > 200 or height < 45:
+                #print ("bad height!", height)
                 return False
 
         self.pool.release_gray(mask)
@@ -622,8 +663,11 @@ class Vision:
         mask_part &= mask8_part
         depth_part = self.depth[y:y+h, x:x+w]
         mask_part[depth_part == 0] = 0
-        mid_depth = numpy.median(depth_part[mask_part == 255])
+        considered_depths = depth_part[mask_part == 255]
         self.pool.release_gray(mask)
+        if len(considered_depths) == 0:
+            return 0
+        mid_depth = numpy.median(considered_depths)
         return mid_depth
 
     def display_edges(self, edges, mid_points):
@@ -806,6 +850,8 @@ class Vision:
         box = minAreaBox(contour)
         (cx_pixel, cy_pixel) = boxCenter(box)
         dist_mm = self.hg_median_dist(contour)
+        if dist_mm == 0:
+            return (0, 0, cx_pixel, cy_pixel)
         z = dist_mm
         x = -self.xyz[0, cy_pixel, cx_pixel]
         if x == 0.0:
@@ -888,3 +934,6 @@ class GearTarget:
         self.j = j
         self.x = x
         self.z = z
+    
+    def dimensions_unknown(self):
+        return self.x == 0 and self.z == 0

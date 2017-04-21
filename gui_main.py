@@ -46,7 +46,8 @@ def main():
         cv2.createTrackbar("frame", "View", 0, len(replayer.frame_names), lambda *args: None)
         cv2.setTrackbarPos("mode", "View", 8)
         cv2.setTrackbarPos("position", "View", 1)
-        scale_factor = 1
+        cv2.setTrackbarPos("image_scale", "View", 3)
+        scale_factor = 3
         with Vision(use_sensor=False) as vision:
             def on_mouse(ev, x, y, flags, userdata):
                 return vision.on_mouse(ev, x // scale_factor, y // scale_factor, flags, userdata)
