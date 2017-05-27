@@ -1,4 +1,5 @@
 import math
+import time
 import pygrip
 import cv2
 import numpy
@@ -71,6 +72,7 @@ class Vision:
         self.contours = []
         self.sd = NetworkTable.getTable("SmartDashboard")
         self.use_sensor = use_sensor
+        self.debug = False
 
     def __enter__(self):
         if self.use_sensor:
@@ -247,6 +249,9 @@ class Vision:
         self.display_depth()
         self.display_raw_ir()
 
+        if self.debug:
+            import pdb
+            pdb.set_trace()
         if self.is_hg_position:
             if self.mode == DISP_IR_MASK3:
                 self.display[:] = 0
@@ -740,6 +745,8 @@ class Vision:
 
         for contour in self.contours:
             box = minAreaBox(contour)
+            # min area vertices can go out of bounds
+            # i want to say no more than 2 will
             mid_x, mid_y = boxCenter(box)
             mid_points.append((mid_x, mid_y))
             # box[i] is a seq (i, j) where i is 320 dir, j is 240

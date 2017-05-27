@@ -1,4 +1,5 @@
 import argparse
+import time
 import cv2
 from data_logger import DataLogger, Replayer
 from vision_processing import (
@@ -54,8 +55,12 @@ def main():
 
             cv2.setMouseCallback("View", on_mouse, None)
             while True:
+                wait_delay = 50
                 vision.set_mode(cv2.getTrackbarPos("mode", "View"))
                 _frame_i = cv2.getTrackbarPos("frame", "View")
+                x = cv2.waitKey(wait_delay)
+                if ord('d') == x:
+                    vision.debug = True
                 if 0 <= _frame_i < len(replayer.frame_names):
                     frame_i = _frame_i
                 vision.get_recorded_depths(replayer, frame_i)
@@ -76,14 +81,12 @@ def main():
                     scale_factor = 1
                 img_to_show = scale_image(vision.display, scale_factor)
                 cv2.imshow("View", img_to_show)
-                wait_delay = 50
                 if mode == "fw" and frame_i < len(replayer.frame_names) - 1:
                     cv2.setTrackbarPos("frame", "View", frame_i+1)
                     wait_delay = replayer.offset_milis(frame_i)
                 elif mode == "bw" and 0 < frame_i:
                     cv2.setTrackbarPos("frame", "View", frame_i-1)
                     wait_delay = replayer.offset_milis(frame_i-1)
-                x = cv2.waitKey(wait_delay)
                 if x % 128 == 27:
                     break
                 elif ord('0') <= x <= ord(str(max_mode)):
@@ -112,16 +115,23 @@ def main():
             cv2.destroyWindow("View")
     else:
         logger = DataLogger("logs")
+        lasttime = time.time()
         if recording:
             logger.begin_logging()
         cv2.namedWindow("View")
         cv2.createTrackbar("mode", "View", 0, max_mode, lambda *args: None)
+        cv2.createTrackbar("image_scale", "View", 1, 10,
+                        lambda *args: None)
         cv2.createTrackbar("angle", "View", 0, 90,
                         lambda *args: None)
         cv2.createTrackbar("position", "View", 0, 1,
                         lambda *args: None)
+        cv2.setTrackbarPos("image_scale", "View", 3)
+        scale_factor = 3
         with Vision() as vision:
-            cv2.setMouseCallback("View", vision.on_mouse, None)
+            def on_mouse(ev, x, y, flags, userdata):
+                return vision.on_mouse(ev, x // scale_factor, y // scale_factor, flags, userdata)
+            cv2.setMouseCallback("View", on_mouse, None)
             while True:
                 vision.set_mode(cv2.getTrackbarPos("mode", "View"))
                 vision.angle = cv2.getTrackbarPos("angle", "View")
@@ -133,9 +143,14 @@ def main():
                     vision.is_hg_position = False
                     vision.is_gear_position = True
                 vision.get_depths()
-                vision.process_depths()
+                lasttime=currenttime
                 logger.log_data(vision.depth, vision.ir)
-                cv2.imshow("View", vision.display)
+                vision.process_depths()
+                scale_factor = cv2.getTrackbarPos("image_scale", "View")
+                if scale_factor == 0:
+                    scale_factor = 1
+                img_to_show = scale_image(vision.display, scale_factor)
+                cv2.imshow("View", img_to_show)
                 x = cv2.waitKey(50)
                 if x % 128 == 27:
                     break
