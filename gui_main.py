@@ -1,4 +1,5 @@
 import argparse
+import time
 import cv2
 from data_logger import DataLogger, Replayer
 from vision_processing import (
@@ -112,6 +113,7 @@ def main():
             cv2.destroyWindow("View")
     else:
         logger = DataLogger("logs")
+        lasttime = None
         if recording:
             logger.begin_logging()
         cv2.namedWindow("View")
@@ -133,7 +135,11 @@ def main():
                     vision.is_hg_position = False
                     vision.is_gear_position = True
                 vision.get_depths()
+                t1 = time.time()
+                if lasttime is not None: print(t1-lasttime)
+                lasttime= t1
                 vision.process_depths()
+                t2 = time.time()
                 logger.log_data(vision.depth, vision.ir)
                 cv2.imshow("View", vision.display)
                 x = cv2.waitKey(50)

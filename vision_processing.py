@@ -1,20 +1,36 @@
 import math
+import time
 import pygrip
 import cv2
 import numpy
 from networktables import NetworkTable
 from numpy_pool import NumpyPool
 from best_fit_line import BestFitLine
+try:
+    from structure3223 import (
+        uint16_into_uint8 as into_uint8,
+        uint8_mask_uint16 as into_uint16_mask,
+        depth_to_xyz2 as depth_to_xyz,
+        uint16_threshold1 as threshold1,
+        uint8_threshold2 as threshold2,
+    )
+except ImportError:
+    from utils import (
+        into_uint8,
+        into_uint16_mask,
+        threshold1,
+        threshold2,
+    )
+    from xyz_converter import (
+        depth_to_xyz,
+    )
 from utils import (
-    into_uint8,
-    into_uint16_mask,
     minAreaBox,
     boxCenter,
     rgbhex2bgr,
 )
 from data_logger import DataLogger, Replayer
 from xyz_converter import (
-    depth_to_xyz,
     x_mm_to_pixel,
     x_pixel_to_mm,
     distance,
@@ -299,17 +315,7 @@ class Vision:
 
     def gear_mask_shiny(self):
         ir_temp = self.pool.get_raw()
-        ir_temp[:,:] = 0
-        # threshold raw ir data
-        ixs = self.ir > 300
-        ir_temp[ixs] = 0xffff
-        # ignore shiny things that are too close
-        ixs = self.depth < 500 # mm
-        ixs &= self.depth != 0
-        #ir_temp[ixs] = 0
-        # and too far away
-        ixs = self.depth > 9000 # mm
-        ir_temp[ixs] = 0
+        threshold1(ir=self.ir, depth=self.ir, dst=ir_temp)
         # bumper!!!
         ir_temp[210:, :] = 0
         into_uint8(ir_temp, dst=self.unblurred_mask8)
@@ -317,14 +323,10 @@ class Vision:
         # blur the shiny, reduce the noise for contour finding
         pygrip.blur(
             self.unblurred_mask8, 
-            pygrip.GAUSSIAN_BLUR, 
+            pygrip.BOX_BLUR, 
             radius=2, dst=self.mask8)
 
-        mask_threshold = 50
-        ixs = self.mask8 > mask_threshold 
-        self.mask8[ixs] = 255
-        ixs = self.mask8 < mask_threshold 
-        self.mask8[ixs] = 0
+        threshold2(50, self.mask8)
         self.display_ir_mask2(self.mask8)
         # grr threshold operates on matrices of unsigned bytes
         into_uint16_mask(self.mask8, dst=self.mask16)
