@@ -143,9 +143,11 @@ def main():
                     vision.is_hg_position = False
                     vision.is_gear_position = True
                 vision.get_depths()
-                lasttime=currenttime
                 logger.log_data(vision.depth, vision.ir)
+                t1 = time.time()
                 vision.process_depths()
+                currenttime = time.time()
+                lasttime=currenttime
                 scale_factor = cv2.getTrackbarPos("image_scale", "View")
                 if scale_factor == 0:
                     scale_factor = 1

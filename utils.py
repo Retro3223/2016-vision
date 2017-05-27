@@ -12,9 +12,9 @@ def into_uint8(img, dst):
     # convert a matrix of unsigned short values to a matrix of unsigned byte
     # values.
     # mostly just useful for turning sensor output into viewable images
-    max = numpy.amax(img)
+    max = 0xfff
     if max > 255:
-        dst[:] = img * 255. / max
+        dst[:] = img >> 4
     else:
         numpy.copyto(dst, img)
     return dst
@@ -81,3 +81,23 @@ def least_squares(ts, xs):
     b = ((ts - tmean) * (xs - xmean)).sum() / ((ts - tmean)**2).sum()
     a = xmean - b * tmean
     return (a, b)
+
+
+def threshold1(ir, depth, dst):
+    dst[:,:] = 0
+    # threshold raw ir data
+    ixs = ir > 300
+    dst[ixs] = 0xffff
+    # ignore shiny things that are too close
+    #ixs = self.depth < 500 # mm
+    #ixs &= self.depth != 0
+    #dst[ixs] = 0
+    # and too far away
+    ixs = depth > 9000 # mm
+    dst[ixs] = 0
+
+def threshold2(threshold, dst):
+    ixs = dst > threshold 
+    dst[ixs] = 255
+    ixs = dst < threshold 
+    dst[ixs] = 0
