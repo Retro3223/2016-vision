@@ -54,15 +54,68 @@ class DataLogger:
         if self.match_running:
             try:
                 now_milis = int(time.time() * 1000)
-                fnom = os.path.join(self.save_dir, str(now_milis))
-                numpy.savez_compressed(fnom, depth=depth, ir=ir)
+                depthnom = os.path.join(self.save_dir, "%s_depth" % (now_milis,))
+                irnom = os.path.join(self.save_dir, "%s_ir" % (now_milis,))
+                numpy.save(file=depthnom, arr=depth)
+                numpy.save(file=irnom, arr=ir)
             except:
                 # don't stop the main loop!
                 raise
         self.stop_when_done()
 
 
+def get_timestamp(filenom, suffix):
+    if filenom.endswith(suffix):
+        return filenom[:-len(suffix)]
+
+
 class Replayer:
+    def __init__(self, log_dir):
+        self.log_dir = log_dir
+        files = [os.path.splitext(x)[0] for x in os.listdir(log_dir)]
+
+        potential_frames = set()
+        self.frame_names = []
+        for item in files:
+            nom = get_timestamp(item, '_depth')
+            if nom:
+                potential_frames.add(nom)
+            else:
+                nom = get_timestamp(item, '_ir')
+                if nom and nom in potential_frames:
+                    potential_frames.remove(nom)
+                    self.frame_names.append(nom)
+        self.frame_names.sort()
+
+    def load_frame(self, i):
+        _i = i
+        ir, depth = None, None
+        results = {}
+        if isinstance(i, int):
+            i = self.frame_names[i]
+        try:
+            depthnom = os.path.join(self.log_dir, "%s_depth.npy" % (i,))
+            irnom = os.path.join(self.log_dir, "%s_ir.npy" % (i,))
+            results['ir'] = numpy.load(irnom)
+            results['depth'] = numpy.load(depthnom)
+        except:
+            print ('bad! ', _i, i)
+            raise
+
+        return results
+
+    def offset_milis(self, i):
+        if 0 <= i < len(self.frame_names)-1:
+            milis_now = int(self.frame_names[i])
+            milis_next = int(self.frame_names[i+1])
+            return milis_next - milis_now
+
+    def file_name(self, i):
+        if 0 <= i < len(self.frame_names):
+            return os.path.join(self.log_dir, "%s_depth.npy" % (self.frame_names[i],))
+
+
+class LegacyReplayer:
     def __init__(self, log_dir):
         self.log_dir = log_dir
         self.frame_names = [os.path.splitext(x)[0] for x in os.listdir(log_dir)]

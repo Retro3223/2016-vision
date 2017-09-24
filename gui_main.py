@@ -1,7 +1,7 @@
 import argparse
 import time
 import cv2
-from data_logger import DataLogger, Replayer
+from data_logger import DataLogger, Replayer, LegacyReplayer
 from vision_processing import (
     Vision
 )
@@ -15,6 +15,9 @@ def setup_options_parser():
         default=None,
         help='specify directory of data to replay ' +
              '(or don\'t specify and display live sensor')
+    parser.add_argument(
+        '--legacy', dest='is_legacy', action='store_true', 
+        default=False, help='if replay data is in the old *.npz format')
     parser.add_argument(
         '--record', dest='record', default=False, action='store_true',
         help='enable recording of data read from sensor')
@@ -36,7 +39,10 @@ def main():
     recording = args.record
     pclviewer = None
     if replaying:
-        replayer = Replayer(args.replay_dir)
+        if args.is_legacy:
+            replayer = LegacyReplayer(args.replay_dir)
+        else:
+            replayer = Replayer(args.replay_dir)
         mode = "stopped"
         cv2.namedWindow("View")
         cv2.createTrackbar("mode", "View", 0, max_mode, lambda *args: None)

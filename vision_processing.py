@@ -737,7 +737,7 @@ class Vision:
         depth_diff[idx] = 0
         depth8 = self.pool.get_gray()
         depth8[:, :] = 255
-        depth8[idx] = 0
+        depth8[:, :-1][idx] = 0
         right_edges = []
         left_edges = []
         mid_points = []
