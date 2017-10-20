@@ -15,12 +15,14 @@ class DataLogger:
         self.time_stop = None
         self.log_dir = log_dir
         self.save_dir = None
+        self.log_period = 100 # ms
+        self.last_log_time_milis = 0 # time, ms
         self.sd = NetworkTable.getTable("SmartDashboard")
 
         self.sd.addTableListener(self.value_changed)
 
     def value_changed(self, table, key, value, is_new):
-        if key == "autonomousBegin" and not self.match_running:
+        if key == "auto_time_remaining" and value == 15 and not self.match_running:
             self.begin_logging()
             self.stop_at(150)
 
@@ -54,10 +56,12 @@ class DataLogger:
         if self.match_running:
             try:
                 now_milis = int(time.time() * 1000)
-                depthnom = os.path.join(self.save_dir, "%s_depth" % (now_milis,))
-                irnom = os.path.join(self.save_dir, "%s_ir" % (now_milis,))
-                numpy.save(file=depthnom, arr=depth)
-                numpy.save(file=irnom, arr=ir)
+                if now_milis - self.last_log_time_milis > self.log_period:
+                    depthnom = os.path.join(self.save_dir, "%s_depth" % (now_milis,))
+                    irnom = os.path.join(self.save_dir, "%s_ir" % (now_milis,))
+                    numpy.save(file=depthnom, arr=depth)
+                    numpy.save(file=irnom, arr=ir)
+                    self.last_log_time_milis = now_milis
             except:
                 # don't stop the main loop!
                 raise
